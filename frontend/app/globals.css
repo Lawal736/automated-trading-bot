@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: linear-gradient(
+      to bottom,
+      transparent,
+      rgb(var(--background-end-rgb))
+    )
+    rgb(var(--background-start-rgb));
+}
+
+/* Custom styles for Create Bot page */
+.form-label {
+  @apply block text-sm font-medium mb-2 text-gray-300;
+}
+.form-input {
+  @apply w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500;
+}
+.strategy-card {
+  @apply p-4 border rounded-lg cursor-pointer transition-colors border-gray-600 hover:border-gray-500;
+}
+.strategy-card-selected {
+  @apply border-blue-500 bg-blue-900/20;
+}
+.pair-toggle {
+  @apply w-full px-3 py-2 text-sm text-center rounded-md transition-colors bg-gray-700 hover:bg-gray-600;
+}
+.pair-toggle-selected {
+  @apply bg-blue-600 text-white hover:bg-blue-500;
+}
+.trade-type-btn {
+    @apply px-4 py-2 rounded-md font-semibold transition-colors bg-gray-700 hover:bg-gray-600;
+}
+.trade-type-btn-selected {
+    @apply bg-blue-600 text-white hover:bg-blue-500;
+} 

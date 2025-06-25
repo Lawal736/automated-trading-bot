@@ -1,0 +1,21 @@
+from fastapi import APIRouter
+
+from app.api.v1.endpoints import auth, exchanges, users, bots, activities, portfolio, reports, balance, backtest
+
+api_router = APIRouter()
+
+# Health check endpoint for API
+@api_router.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+# Include all endpoint routers
+api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(exchanges.router, prefix="/exchanges", tags=["exchanges"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(bots.router, prefix="/bots", tags=["bots"])
+api_router.include_router(activities.router, prefix="/activities", tags=["activities"])
+api_router.include_router(portfolio.router, prefix="/portfolio", tags=["portfolio"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(balance.router, prefix="/balance", tags=["balance"])
+api_router.include_router(backtest.router, prefix="/backtest", tags=["backtest"]) 
