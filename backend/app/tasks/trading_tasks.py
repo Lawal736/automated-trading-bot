@@ -517,6 +517,32 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                 db.commit()
                 logger.info(f"Bot trade record updated in database: {pending_trade.id}")
 
+                # Create position record for successful bot trade
+                try:
+                    position = Position(
+                        user_id=bot.user_id,
+                        bot_id=bot.id,
+                        exchange_connection_id=bot.exchange_connection_id,
+                        symbol=symbol,
+                        trade_type="spot",  # Assuming spot trading for bots
+                        side=order_side.value,
+                        quantity=amount_to_trade,
+                        entry_price=float(order_result.price) if order_result.price else current_price,
+                        current_price=float(order_result.price) if order_result.price else current_price,
+                        leverage=1,  # Spot trading has leverage of 1
+                        unrealized_pnl=0.0,  # Will be calculated later
+                        realized_pnl=0.0,
+                        total_pnl=0.0,
+                        is_open=True,
+                        opened_at=datetime.utcnow()
+                    )
+                    db.add(position)
+                    db.commit()
+                    logger.info(f"Position record created for bot trade: {position.id}")
+                except Exception as pos_error:
+                    logger.warning(f"Failed to create position record for bot trade: {pos_error}")
+                    # Don't fail the trade if position creation fails
+
                 # Log successful trade activity
                 if user:
                     status_text = "closed" if order_result.status == "closed" else "open"

@@ -8,10 +8,19 @@ from app.models.trading import Position
 
 logger = get_logger(__name__)
 
+def clear_portfolio_cache(user_id: int):
+    """Clear the portfolio cache for a specific user"""
+    cache_key = get_cache_key_for_user_portfolio(user_id)
+    cache_client.delete(cache_key)
+    logger.info(f"Portfolio cache cleared for user {user_id}")
+
 def get_portfolio_data(db: Session, *, user_id: int) -> Portfolio:
     """
     Calculates and returns portfolio data, using a cache to improve performance.
     """
+    # Clear cache to ensure fresh data (temporary fix for development)
+    clear_portfolio_cache(user_id)
+    
     # 1. Try to fetch from cache first
     cache_key = get_cache_key_for_user_portfolio(user_id)
     cached_portfolio = cache_client.get(cache_key)
@@ -43,7 +52,10 @@ def get_portfolio_data(db: Session, *, user_id: int) -> Portfolio:
     )
 
     active_positions = db.query(Position).filter(Position.user_id == user_id, Position.is_open == True).count()
-    total_trades = sum(1 for activity in activities if getattr(activity, 'type', None) == 'trade_executed')
+    
+    # Count all trade-related activities
+    trade_types = ['trade_executed', 'MANUAL_TRADE', 'STOP_LOSS_ORDER', 'trade', 'BOT_TRADE', 'MANUAL_TRADE_PENDING', 'BOT_TRADE_PENDING']
+    total_trades = sum(1 for activity in activities if getattr(activity, 'type', None) in trade_types)
 
     portfolio = Portfolio(
         total_balance=total_balance,
