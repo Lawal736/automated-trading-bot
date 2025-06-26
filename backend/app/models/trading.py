@@ -93,6 +93,9 @@ class Position(Base):
     current_price = Column(Float)
     leverage = Column(Integer, default=1)
     
+    # Exchange order tracking
+    exchange_order_id = Column(String(255))  # Exchange's order ID that created this position
+    
     # P&L calculations
     unrealized_pnl = Column(Float, default=0.0)
     realized_pnl = Column(Float, default=0.0)

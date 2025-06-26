@@ -240,9 +240,11 @@ class BinanceExchange(BaseExchange):
             raise
     
     async def get_order(self, order_id: str, symbol: str) -> Order:
-        """Get order information"""
+        """Get order information, with fallback to trade history if not found"""
         try:
+            logger.info(f"[Binance] Fetching order {order_id} for {symbol}")
             result = await self.client.fetch_order(order_id, symbol)
+            logger.info(f"[Binance] fetch_order result: {result}")
             return Order(
                 id=str(result['id']),
                 symbol=symbol,
@@ -258,8 +260,35 @@ class BinanceExchange(BaseExchange):
                 timestamp=datetime.fromtimestamp(result['timestamp'] / 1000) if result['timestamp'] else None
             )
         except Exception as e:
-            logger.error(f"Error fetching order {order_id}: {e}")
-            raise
+            logger.warning(f"[Binance] fetch_order failed for {order_id} on {symbol}: {e}")
+            # Fallback: check trade history for this symbol
+            try:
+                logger.info(f"[Binance] Falling back to trade history for {symbol}")
+                trades = await self.client.fetch_my_trades(symbol)
+                logger.info(f"[Binance] Trade history fetched: {len(trades)} trades")
+                for trade in trades:
+                    if str(trade['order']) == str(order_id):
+                        logger.info(f"[Binance] Found order {order_id} in trade history for {symbol}")
+                        # Synthesize an Order object as filled
+                        return Order(
+                            id=str(trade['order']),
+                            symbol=symbol,
+                            side=OrderSide.BUY if trade['side'] == 'buy' else OrderSide.SELL,
+                            order_type=OrderType('market'),
+                            amount=Decimal(str(trade['amount'])),
+                            price=Decimal(str(trade['price'])),
+                            filled_amount=Decimal(str(trade['amount'])),
+                            remaining_amount=Decimal('0'),
+                            status='filled',
+                            fee=Decimal(str(trade['fee']['cost'])) if trade['fee'] else None,
+                            fee_currency=trade['fee']['currency'] if trade['fee'] else None,
+                            timestamp=datetime.fromtimestamp(trade['timestamp'] / 1000) if trade['timestamp'] else None
+                        )
+                logger.warning(f"[Binance] Order {order_id} not found in trade history for {symbol}")
+                return None
+            except Exception as e2:
+                logger.error(f"[Binance] fetch_my_trades failed for {symbol}: {e2}")
+                return None
     
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """Cancel an order"""
@@ -320,24 +349,59 @@ class BinanceExchange(BaseExchange):
             raise
     
     async def get_positions(self, symbol: Optional[str] = None) -> List[Position]:
-        """Get current positions (for futures)"""
+        """Get current positions (for both spot and futures)"""
         try:
-            positions = await self.futures_client.fetch_positions(symbol)
             result = []
             
-            for pos in positions:
-                if pos['size'] > 0:  # Only include open positions
-                    result.append(Position(
-                        symbol=pos['symbol'],
-                        side=OrderSide.BUY if pos['side'] == 'long' else OrderSide.SELL,
-                        size=Decimal(str(pos['size'])),
-                        entry_price=Decimal(str(pos['entryPrice'])),
-                        mark_price=Decimal(str(pos['markPrice'])) if pos['markPrice'] else None,
-                        unrealized_pnl=Decimal(str(pos['unrealizedPnl'])) if pos['unrealizedPnl'] else None,
-                        realized_pnl=Decimal(str(pos['realizedPnl'])) if pos['realizedPnl'] else None,
-                        leverage=int(pos['leverage']) if pos['leverage'] else None,
-                        liquidation_price=Decimal(str(pos['liquidationPrice'])) if pos['liquidationPrice'] else None
-                    ))
+            # For spot trading, get balances and convert to positions
+            try:
+                balances = await self.get_balance()
+                for balance in balances:
+                    if balance.total > 0 and balance.currency != 'USDT':  # Skip USDT and zero balances
+                        # Create a position-like object for spot holdings
+                        symbol_name = f"{balance.currency}/USDT"
+                        if symbol and symbol != symbol_name:
+                            continue
+                            
+                        # Get current price for PnL calculation
+                        try:
+                            ticker = await self.get_ticker(symbol_name)
+                            current_price = float(ticker.price) if ticker else 0
+                        except:
+                            current_price = 0
+                        
+                        result.append(Position(
+                            symbol=symbol_name,
+                            side=OrderSide.BUY,  # Spot holdings are always "buy" side
+                            size=balance.total,
+                            entry_price=Decimal('0'),  # We don't have entry price for spot balances
+                            mark_price=Decimal(str(current_price)),
+                            unrealized_pnl=Decimal('0'),  # Can't calculate without entry price
+                            realized_pnl=Decimal('0'),
+                            leverage=None,
+                            liquidation_price=None
+                        ))
+            except Exception as e:
+                logger.warning(f"Error fetching spot positions: {e}")
+            
+            # For futures trading, get positions
+            try:
+                futures_positions = await self.futures_client.fetch_positions(symbol)
+                for pos in futures_positions:
+                    if pos['size'] > 0:  # Only include open positions
+                        result.append(Position(
+                            symbol=pos['symbol'],
+                            side=OrderSide.BUY if pos['side'] == 'long' else OrderSide.SELL,
+                            size=Decimal(str(pos['size'])),
+                            entry_price=Decimal(str(pos['entryPrice'])),
+                            mark_price=Decimal(str(pos['markPrice'])) if pos['markPrice'] else None,
+                            unrealized_pnl=Decimal(str(pos['unrealizedPnl'])) if pos['unrealizedPnl'] else None,
+                            realized_pnl=Decimal(str(pos['realizedPnl'])) if pos['realizedPnl'] else None,
+                            leverage=int(pos['leverage']) if pos['leverage'] else None,
+                            liquidation_price=Decimal(str(pos['liquidationPrice'])) if pos['liquidationPrice'] else None
+                        ))
+            except Exception as e:
+                logger.warning(f"Error fetching futures positions: {e}")
             
             return result
         except Exception as e:

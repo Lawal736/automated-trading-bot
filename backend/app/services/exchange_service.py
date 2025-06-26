@@ -236,28 +236,60 @@ class ExchangeService:
                 try:
                     # For spot trading, create a position record
                     if trade_order.trade_type == "spot":
-                        position = Position(
-                            user_id=user_id,
-                            exchange_connection_id=exchange_conn.id,
-                            symbol=trade_order.symbol,
-                            trade_type="spot",
-                            side=trade_order.side,
-                            quantity=trade_order.amount,
-                            entry_price=float(order_result.price) if order_result.price else float(trade_order.price or 0),
-                            current_price=float(order_result.price) if order_result.price else float(trade_order.price or 0),
-                            leverage=1,  # Spot trading has leverage of 1
-                            unrealized_pnl=0.0,  # Will be calculated later
-                            realized_pnl=0.0,
-                            total_pnl=0.0,
-                            is_open=True,
-                            opened_at=datetime.utcnow()
-                        )
-                        self.session.add(position)
-                        self.session.commit()
-                        logger.info(f"Position record created for manual trade: {position.id}")
+                        # Check if position already exists for this order
+                        existing_position = self.session.query(Position).filter(
+                            Position.exchange_order_id == str(order_result.id),
+                            Position.symbol == trade_order.symbol,
+                            Position.user_id == user_id
+                        ).first()
+                        
+                        if existing_position:
+                            logger.warning(f"Position already exists for order {order_result.id} - skipping creation")
+                        else:
+                            # Validate required fields before creating position
+                            if not trade_order.amount or trade_order.amount <= 0:
+                                raise ValueError(f"Invalid trade amount: {trade_order.amount}")
+                            
+                            if not order_result.price and not trade_order.price:
+                                raise ValueError("No price available for position creation")
+                            
+                            entry_price = float(order_result.price) if order_result.price else float(trade_order.price or 0)
+                            
+                            position = Position(
+                                user_id=user_id,
+                                exchange_connection_id=exchange_conn.id,
+                                symbol=trade_order.symbol,
+                                trade_type="spot",
+                                side=trade_order.side,
+                                quantity=trade_order.amount,
+                                entry_price=entry_price,
+                                current_price=entry_price,
+                                leverage=1,  # Spot trading has leverage of 1
+                                exchange_order_id=str(order_result.id),  # Store the exchange order ID
+                                unrealized_pnl=0.0,  # Will be calculated later
+                                realized_pnl=0.0,
+                                total_pnl=0.0,
+                                is_open=True,
+                                opened_at=datetime.utcnow()
+                            )
+                            
+                            self.session.add(position)
+                            self.session.commit()
+                            logger.info(f"Position record created for manual trade: {position.id} with order ID {order_result.id}")
+                            
+                            # Verify position was created successfully
+                            created_position = self.session.query(Position).filter(
+                                Position.id == position.id
+                            ).first()
+                            
+                            if not created_position:
+                                raise Exception("Position was not saved to database")
+                            
                 except Exception as pos_error:
-                    logger.warning(f"Failed to create position record: {pos_error}")
-                    # Don't fail the trade if position creation fails
+                    logger.error(f"Failed to create position record: {pos_error}")
+                    logger.error(f"Position creation error details: {type(pos_error).__name__}: {str(pos_error)}")
+                    logger.error(f"Trade details - Order ID: {order_result.id}, Symbol: {trade_order.symbol}, Amount: {trade_order.amount}, Price: {order_result.price}")
+                    # Don't fail the trade if position creation fails, but log the error for investigation
 
                 # Log successful trade activity
                 if user:

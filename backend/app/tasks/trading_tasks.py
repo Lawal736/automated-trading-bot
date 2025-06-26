@@ -35,68 +35,97 @@ def setup_periodic_tasks(sender, **kwargs):
         name='Sync open positions from exchange'
     )
 
+@celery_app.task(name="tasks.manual_sync_positions")
+def manual_sync_positions():
+    """
+    Manual trigger for position sync - useful for testing and immediate updates
+    """
+    logger.info("Manual position sync triggered")
+    return sync_open_positions()
+
 @celery_app.task(name="tasks.sync_open_positions")
 def sync_open_positions():
     """
     Periodically sync open positions from the exchange for all users and bots.
-    Updates or closes DB records as needed to match the exchange.
+    Uses exchange order IDs to check actual order status on the exchange.
     """
     db: Session = SessionLocal()
     try:
-        bots = db.query(Bot).filter(Bot.is_active == True).all()
-        for bot in bots:
-            connection = db.query(ExchangeConnection).filter(ExchangeConnection.id == bot.exchange_connection_id).first()
-            if not connection:
-                logger.warning(f"No exchange connection for bot {bot.id}")
+        # Get all exchange connections
+        connections = db.query(ExchangeConnection).all()
+        
+        # Group positions by exchange connection
+        for connection in connections:
+            logger.info(f"Syncing positions for exchange connection: {connection.exchange_name} (ID: {connection.id})")
+            
+            # Get all open positions for this exchange connection
+            db_positions = db.query(Position).filter(
+                Position.exchange_connection_id == connection.id,
+                Position.is_open == True
+            ).all()
+            
+            if not db_positions:
+                logger.info(f"No open positions found for exchange connection {connection.id}")
                 continue
+                
+            logger.info(f"Found {len(db_positions)} open positions to sync for {connection.exchange_name}")
+            
             import asyncio
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                # Fetch open positions from the exchange
-                open_positions = loop.run_until_complete(trading_service.get_positions(connection.id))
-                # Fetch current DB positions for this bot
-                db_positions = db.query(Position).filter_by(bot_id=bot.id, is_open=True).all()
-                # Map by symbol for easy comparison
-                db_pos_map = {p.symbol: p for p in db_positions}
-                ex_pos_map = {p.symbol: p for p in open_positions}
-                # Update or create positions
-                for symbol, ex_pos in ex_pos_map.items():
-                    if symbol in db_pos_map:
-                        db_pos = db_pos_map[symbol]
-                        db_pos.quantity = float(getattr(ex_pos, 'size', ex_pos.quantity))
-                        db_pos.entry_price = float(ex_pos.entry_price)
-                        db_pos.current_price = float(getattr(ex_pos, 'mark_price', ex_pos.current_price or 0))
-                        db_pos.unrealized_pnl = float(getattr(ex_pos, 'unrealized_pnl', 0))
-                        db_pos.leverage = int(getattr(ex_pos, 'leverage', db_pos.leverage or 1))
-                        db_pos.updated_at = datetime.utcnow()
-                    else:
-                        db.add(Position(
-                            user_id=bot.user_id,
-                            bot_id=bot.id,
-                            exchange_connection_id=bot.exchange_connection_id,
-                            symbol=ex_pos.symbol,
-                            trade_type=ex_pos.trade_type if hasattr(ex_pos, 'trade_type') else 'spot',
-                            side=ex_pos.side.value if hasattr(ex_pos.side, 'value') else ex_pos.side,
-                            quantity=float(getattr(ex_pos, 'size', ex_pos.quantity)),
-                            entry_price=float(ex_pos.entry_price),
-                            current_price=float(getattr(ex_pos, 'mark_price', ex_pos.current_price or 0)),
-                            leverage=int(getattr(ex_pos, 'leverage', 1)),
-                            unrealized_pnl=float(getattr(ex_pos, 'unrealized_pnl', 0)),
-                            is_open=True,
-                            opened_at=datetime.utcnow(),
-                        ))
-                # Close positions that are no longer open on the exchange
-                for symbol, db_pos in db_pos_map.items():
-                    if symbol not in ex_pos_map:
-                        db_pos.is_open = False
-                        db_pos.closed_at = datetime.utcnow()
-                        db_pos.updated_at = datetime.utcnow()
+                
+                positions_updated = 0
+                positions_closed = 0
+                
+                # Check each position individually using its exchange order ID
+                for db_position in db_positions:
+                    if not db_position.exchange_order_id:
+                        logger.warning(f"Position {db_position.id} ({db_position.symbol}) has no exchange order ID, skipping")
+                        continue
+                    
+                    try:
+                        # Fetch the order status from the exchange
+                        order = loop.run_until_complete(
+                            trading_service.get_order(connection.id, db_position.exchange_order_id, db_position.symbol)
+                        )
+                        
+                        if order is None:
+                            logger.warning(f"Order {db_position.exchange_order_id} for position {db_position.id} not found on exchange or in trade history. Skipping.")
+                            continue
+                        
+                        logger.info(f"Order {db_position.exchange_order_id} status: {order.status}")
+                        
+                        # Update position based on order status
+                        if order.status in ['closed', 'filled', 'canceled']:
+                            # Order is closed, so position should be closed
+                            db_position.is_open = False
+                            db_position.closed_at = datetime.utcnow()
+                            db_position.updated_at = datetime.utcnow()
+                            positions_closed += 1
+                            logger.info(f"Closed position {db_position.id} ({db_position.symbol}) - order status: {order.status}")
+                        else:
+                            # Order is still open, update position data
+                            db_position.quantity = float(order.filled_amount) if order.filled_amount else db_position.quantity
+                            db_position.current_price = float(order.price) if order.price else db_position.current_price
+                            db_position.updated_at = datetime.utcnow()
+                            positions_updated += 1
+                            logger.info(f"Updated position {db_position.id} ({db_position.symbol}) - quantity: {db_position.quantity}, price: {db_position.current_price}")
+                    
+                    except Exception as e:
+                        logger.error(f"Error checking order {db_position.exchange_order_id} for position {db_position.id}: {e}")
+                        continue
+                
                 db.commit()
+                logger.info(f"Position sync completed for {connection.exchange_name}: {positions_updated} updated, {positions_closed} closed")
+                
+            except Exception as e:
+                logger.error(f"Error syncing positions for exchange {connection.exchange_name}: {e}", exc_info=True)
             finally:
                 loop.close()
+                
     except Exception as e:
-        logger.error(f"Error syncing open positions: {e}", exc_info=True)
+        logger.error(f"Error in sync_open_positions task: {e}", exc_info=True)
     finally:
         db.close()
 
@@ -519,29 +548,61 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
 
                 # Create position record for successful bot trade
                 try:
-                    position = Position(
-                        user_id=bot.user_id,
-                        bot_id=bot.id,
-                        exchange_connection_id=bot.exchange_connection_id,
-                        symbol=symbol,
-                        trade_type="spot",  # Assuming spot trading for bots
-                        side=order_side.value,
-                        quantity=amount_to_trade,
-                        entry_price=float(order_result.price) if order_result.price else current_price,
-                        current_price=float(order_result.price) if order_result.price else current_price,
-                        leverage=1,  # Spot trading has leverage of 1
-                        unrealized_pnl=0.0,  # Will be calculated later
-                        realized_pnl=0.0,
-                        total_pnl=0.0,
-                        is_open=True,
-                        opened_at=datetime.utcnow()
-                    )
-                    db.add(position)
-                    db.commit()
-                    logger.info(f"Position record created for bot trade: {position.id}")
+                    # Check if position already exists for this order
+                    existing_position = db.query(Position).filter(
+                        Position.exchange_order_id == str(order_result.id),
+                        Position.symbol == symbol,
+                        Position.user_id == bot.user_id
+                    ).first()
+                    
+                    if existing_position:
+                        logger.warning(f"Position already exists for bot order {order_result.id} - skipping creation")
+                    else:
+                        # Validate required fields before creating position
+                        if not amount_to_trade or amount_to_trade <= 0:
+                            raise ValueError(f"Invalid trade amount: {amount_to_trade}")
+                        
+                        if not order_result.price and not current_price:
+                            raise ValueError("No price available for position creation")
+                        
+                        entry_price = float(order_result.price) if order_result.price else current_price
+                        
+                        position = Position(
+                            user_id=bot.user_id,
+                            bot_id=bot.id,
+                            exchange_connection_id=bot.exchange_connection_id,
+                            symbol=symbol,
+                            trade_type="spot",  # Assuming spot trading for bots
+                            side=order_side.value,
+                            quantity=amount_to_trade,
+                            entry_price=entry_price,
+                            current_price=entry_price,
+                            leverage=1,  # Spot trading has leverage of 1
+                            exchange_order_id=str(order_result.id),  # Store the exchange order ID
+                            unrealized_pnl=0.0,  # Will be calculated later
+                            realized_pnl=0.0,
+                            total_pnl=0.0,
+                            is_open=True,
+                            opened_at=datetime.utcnow()
+                        )
+                        
+                        db.add(position)
+                        db.commit()
+                        logger.info(f"Position record created for bot trade: {position.id} with order ID {order_result.id}")
+                        
+                        # Verify position was created successfully
+                        created_position = db.query(Position).filter(
+                            Position.id == position.id
+                        ).first()
+                        
+                        if not created_position:
+                            raise Exception("Position was not saved to database")
+                        
                 except Exception as pos_error:
-                    logger.warning(f"Failed to create position record for bot trade: {pos_error}")
-                    # Don't fail the trade if position creation fails
+                    logger.error(f"Failed to create position record for bot trade: {pos_error}")
+                    logger.error(f"Position creation error details: {type(pos_error).__name__}: {str(pos_error)}")
+                    logger.error(f"Bot trade details - Order ID: {order_result.id}, Symbol: {symbol}, Amount: {amount_to_trade}, Price: {order_result.price}")
+                    # Don't fail the trade if position creation fails, but log the error for investigation
 
                 # Log successful trade activity
                 if user:
