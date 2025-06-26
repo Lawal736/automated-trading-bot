@@ -4,7 +4,7 @@ from ..services import bot_service, activity_service, exchange_service
 from ..schemas.portfolio import Portfolio
 from ..core.cache import cache_client, get_cache_key_for_user_portfolio
 from ..core.logging import get_logger
-from app.models.trading import Position
+from app.models.trading import Position, Trade
 
 logger = get_logger(__name__)
 
@@ -51,11 +51,12 @@ def get_portfolio_data(db: Session, *, user_id: int) -> Portfolio:
         if activity.pnl is not None and activity.timestamp.date() == today
     )
 
+    # Count active positions from positions table (open positions)
     active_positions = db.query(Position).filter(Position.user_id == user_id, Position.is_open == True).count()
     
-    # Count all trade-related activities
-    trade_types = ['trade_executed', 'MANUAL_TRADE', 'STOP_LOSS_ORDER', 'trade', 'BOT_TRADE', 'MANUAL_TRADE_PENDING', 'BOT_TRADE_PENDING']
-    total_trades = sum(1 for activity in activities if getattr(activity, 'type', None) in trade_types)
+    # Count total trades from trades table (unique trade operations)
+    # This counts each trade operation, not individual buy/sell orders
+    total_trades = db.query(Trade).filter(Trade.user_id == user_id).count()
 
     portfolio = Portfolio(
         total_balance=total_balance,
