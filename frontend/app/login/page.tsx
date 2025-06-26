@@ -38,7 +38,7 @@ export default function LoginPage() {
 
       const data = await response.json();
       console.log('Login successful:', data);
-      localStorage.setItem('accessToken', data.access_token);
+      localStorage.setItem('access_token', data.access_token);
       router.push('/dashboard');
     } catch (err: any) {
       console.error('Login failed:', err);

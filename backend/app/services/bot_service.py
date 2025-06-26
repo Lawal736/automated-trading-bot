@@ -120,6 +120,24 @@ class CRUDBot:
             db.commit()
             db.refresh(bot_obj)
             
+            # Log activity for bot created
+            try:
+                from app.services.activity_service import activity_service
+                from app.schemas.activity import ActivityCreate
+                from app.models.user import User
+                
+                user = db.query(User).filter(User.id == owner_id).first()
+                if user:
+                    activity = ActivityCreate(
+                        type="bot_created",
+                        description=f"Bot '{bot_obj.name}' created successfully with strategy '{bot_obj.strategy_name}'",
+                        amount=None
+                    )
+                    activity_service.log_activity(db, user, activity)
+                    logger.info(f"Activity logged for bot {bot_obj.id} created")
+            except Exception as e:
+                logger.error(f"Failed to log activity for bot {bot_obj.id} creation: {e}")
+            
             logger.info("Bot created with advanced settings", bot_id=bot_obj.id, user_id=owner_id)
             return bot_obj
         except Exception as e:
@@ -179,8 +197,34 @@ class CRUDBot:
         """Delete a bot"""
         try:
             obj = db.query(Bot).get(id)
+            if not obj:
+                raise ValueError(f"Bot with id {id} not found")
+            
+            # Store bot info before deletion for activity logging
+            bot_name = obj.name
+            user_id = obj.user_id
+            
             db.delete(obj)
             db.commit()
+            
+            # Log activity for bot deleted
+            try:
+                from app.services.activity_service import activity_service
+                from app.schemas.activity import ActivityCreate
+                from app.models.user import User
+                
+                user = db.query(User).filter(User.id == user_id).first()
+                if user:
+                    activity = ActivityCreate(
+                        type="bot_deleted",
+                        description=f"Bot '{bot_name}' deleted successfully",
+                        amount=None
+                    )
+                    activity_service.log_activity(db, user, activity)
+                    logger.info(f"Activity logged for bot {id} deleted")
+            except Exception as e:
+                logger.error(f"Failed to log activity for bot {id} deletion: {e}")
+            
             return obj
         except Exception as e:
             logger.error(f"Error deleting bot: {str(e)}")
@@ -196,6 +240,9 @@ class CRUDBot:
             # Import here to avoid circular imports and make the service optional
             from app.core.celery import celery_app
             from app.tasks.trading_tasks import run_trading_bot_strategy
+            from app.services.activity_service import activity_service
+            from app.schemas.activity import ActivityCreate
+            from app.models.user import User
             
             if bot.is_active:
                 logger.warning(f"Attempted to start already running bot {bot.id}")
@@ -209,6 +256,20 @@ class CRUDBot:
             task_result = run_trading_bot_strategy.delay(bot.id)
             bot.celery_task_id = task_result.id
             db.commit()
+            
+            # Log activity for bot started
+            try:
+                user = db.query(User).filter(User.id == bot.user_id).first()
+                if user:
+                    activity = ActivityCreate(
+                        type="bot_started",
+                        description=f"Bot '{bot.name}' started successfully with strategy '{bot.strategy_name}'",
+                        amount=None
+                    )
+                    activity_service.log_activity(db, user, activity)
+                    logger.info(f"Activity logged for bot {bot.id} started")
+            except Exception as e:
+                logger.error(f"Failed to log activity for bot {bot.id} start: {e}")
             
             logger.info(f"Bot {bot.id} started successfully", task_id=task_result.id)
             
@@ -254,6 +315,24 @@ class CRUDBot:
         bot.celery_task_id = None
         db.commit()
         db.refresh(bot)
+        
+        # Log activity for bot stopped
+        try:
+            from app.services.activity_service import activity_service
+            from app.schemas.activity import ActivityCreate
+            from app.models.user import User
+            
+            user = db.query(User).filter(User.id == bot.user_id).first()
+            if user:
+                activity = ActivityCreate(
+                    type="bot_stopped",
+                    description=f"Bot '{bot.name}' stopped successfully",
+                    amount=None
+                )
+                activity_service.log_activity(db, user, activity)
+                logger.info(f"Activity logged for bot {bot.id} stopped")
+        except Exception as e:
+            logger.error(f"Failed to log activity for bot {bot.id} stop: {e}")
         
         logger.info(f"Bot {bot.id} marked as stopped in the database.")
         

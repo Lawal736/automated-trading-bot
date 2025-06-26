@@ -35,7 +35,7 @@ const PositionsModal: React.FC<PositionsModalProps> = ({ open, onClose }) => {
     if (open) {
       setLoading(true);
       setError(null);
-      const token = localStorage.getItem('accessToken');
+      const token = localStorage.getItem('access_token');
       fetch('/api/v1/portfolio/positions/', {
         method: 'GET',
         headers: {

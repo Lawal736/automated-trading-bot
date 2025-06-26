@@ -106,6 +106,7 @@ def run_trading_bot_strategy(self, bot_id: int):
     Celery task to execute a trading strategy for a given bot.
     
     This task runs continuously while the bot is active and implements:
+    - Immediate signal search within first minute of startup
     - Continuous trading based on strategy conditions
     - Advanced dynamic stop loss management
     - Risk management and position sizing
@@ -155,6 +156,56 @@ def run_trading_bot_strategy(self, bot_id: int):
             return
 
         logger.info(f"Starting trading bot '{bot.name}' (ID: {bot.id}) with strategy '{bot.strategy_name}'.")
+
+        # --- IMMEDIATE SIGNAL SEARCH (First minute after startup) ---
+        logger.info(f"Performing immediate signal search for bot '{bot.name}' (ID: {bot.id})")
+        
+        # Track if we've done the initial scan
+        initial_scan_completed = False
+        
+        for pair in bot.trading_pairs.split(','):
+            symbol = pair.strip()
+            
+            try:
+                # Generate signal immediately
+                signal = strategy_service.generate_signal(symbol)
+                
+                # Log the signal result
+                user = db.query(User).filter(User.id == bot.user_id).first()
+                if user:
+                    if signal == Signal.HOLD:
+                        activity = ActivityCreate(
+                            type="signal_generated",
+                            description=f"Initial scan: Strategy '{bot.strategy_name}' generated HOLD signal for {symbol}",
+                            amount=None
+                        )
+                    else:
+                        activity = ActivityCreate(
+                            type="signal_generated",
+                            description=f"Initial scan: Strategy '{bot.strategy_name}' generated {signal.value} signal for {symbol}",
+                            amount=None
+                        )
+                    activity_service.log_activity(db, user, activity)
+                    logger.info(f"Initial signal scan for {symbol}: {signal.value}")
+                
+                # If we found a non-HOLD signal, execute it immediately
+                if signal != Signal.HOLD:
+                    logger.info(f"Executing immediate {signal.value} signal for {symbol} from initial scan")
+                    _execute_trade(db, bot, symbol, signal)
+                    
+            except Exception as e:
+                logger.error(f"Error during initial signal scan for {symbol}: {e}")
+                user = db.query(User).filter(User.id == bot.user_id).first()
+                if user:
+                    activity = ActivityCreate(
+                        type="error",
+                        description=f"Error during initial signal scan for {symbol}: {e}",
+                        amount=None
+                    )
+                    activity_service.log_activity(db, user, activity)
+        
+        initial_scan_completed = True
+        logger.info(f"Initial signal scan completed for bot '{bot.name}' (ID: {bot.id})")
 
         while True:
             # Refresh bot state from DB
@@ -341,7 +392,7 @@ def run_trading_bot_strategy(self, bot_id: int):
         db.close()
 
 def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
-    """Calculates position size and executes a trade."""
+    """Calculates position size and executes a trade with Database First → Exchange → Update Database flow."""
     try:
         # Import the trading service
         from app.trading.trading_service import trading_service
@@ -383,9 +434,47 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
             current_price = float(ticker.last_price)
             amount_to_trade = position_size_usd / current_price
 
-            # 2. Execute trade using the trading service
+            # STEP 1: Create pending trade record in database FIRST
             order_side = OrderSide.BUY if signal == Signal.BUY else OrderSide.SELL
             
+            try:
+                pending_trade = Trade(
+                    user_id=bot.user_id,
+                    bot_id=bot.id,
+                    exchange_connection_id=bot.exchange_connection_id,
+                    symbol=symbol,
+                    trade_type="spot",  # Assuming spot trading for now
+                    order_type=OrderType.MARKET.value,
+                    side=order_side.value,
+                    quantity=amount_to_trade,
+                    price=current_price,
+                    executed_price=0.0,  # Will be updated after exchange execution
+                    status=OrderStatus.PENDING.value,
+                    exchange_order_id=None,  # Will be updated after exchange execution
+                    executed_at=None  # Will be updated after exchange execution
+                )
+                
+                db.add(pending_trade)
+                db.commit()
+                db.refresh(pending_trade)
+                logger.info(f"Pending bot trade record created in database: {pending_trade.id}")
+                
+                # Log activity for pending trade
+                user = db.query(User).filter(User.id == bot.user_id).first()
+                if user:
+                    activity = ActivityCreate(
+                        type="BOT_TRADE_PENDING",
+                        description=f"Bot '{bot.name}' generated {signal.value} signal for {amount_to_trade:.4f} {symbol.split('/')[0]} at market price. Status: PENDING (trade id: {pending_trade.id})",
+                        amount=amount_to_trade
+                    )
+                    activity_service.log_activity(db, user, activity)
+                    logger.info(f"Activity logged for pending bot trade: {pending_trade.id}")
+                
+            except Exception as db_error:
+                logger.error(f"Failed to create pending bot trade record in database: {db_error}")
+                raise Exception(f"Failed to log bot trade in system: {db_error}")
+
+            # STEP 2: Execute trade on exchange
             logger.info(f"Executing {order_side.value} trade for {amount_to_trade:.4f} {symbol.split('/')[0]} on bot {bot.id}")
 
             order_result = loop.run_until_complete(
@@ -400,58 +489,89 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
             )
 
             if not order_result:
-                logger.error(f"Failed to create order for bot {bot.id} on {symbol}")
+                # Update database with failed status
+                pending_trade.status = OrderStatus.REJECTED.value
+                db.commit()
+                
+                error_message = f"Failed to create order for bot {bot.id} on {symbol}"
+                logger.error(error_message)
+                
+                # Log failed trade activity
+                if user:
+                    activity = ActivityCreate(
+                        type="BOT_TRADE_FAILED",
+                        description=f"Bot '{bot.name}' failed to execute {signal.value} trade for {symbol}. Order creation failed. (trade id: {pending_trade.id})",
+                        amount=amount_to_trade
+                    )
+                    activity_service.log_activity(db, user, activity)
+                
                 return
 
-            # 3. Create Trade record in database
-            trade_record = Trade(
-                user_id=bot.user_id,
-                bot_id=bot.id,
-                exchange_connection_id=bot.exchange_connection_id,
-                symbol=symbol,
-                trade_type="spot",  # Assuming spot trading for now
-                order_type=OrderType.MARKET.value,
-                side=order_side.value,
-                quantity=amount_to_trade,
-                price=current_price,
-                executed_price=float(order_result.price) if order_result.price else current_price,
-                status=OrderStatus.FILLED.value if order_result.status == "closed" else OrderStatus.OPEN.value,
-                exchange_order_id=str(order_result.id),
-                executed_at=datetime.utcnow()
-            )
-            
-            db.add(trade_record)
-            db.commit()
-            logger.info(f"Trade record created in database: {trade_record.id}")
+            # STEP 3: Update database with successful execution
+            try:
+                # Update main trade record
+                pending_trade.status = OrderStatus.FILLED.value if order_result.status == "closed" else OrderStatus.OPEN.value
+                pending_trade.executed_price = float(order_result.price) if order_result.price else current_price
+                pending_trade.exchange_order_id = str(order_result.id)
+                pending_trade.executed_at = datetime.utcnow()
+                db.commit()
+                logger.info(f"Bot trade record updated in database: {pending_trade.id}")
 
-            # 4. Log activity
-            pnl = 0  # PnL calculation would be more complex, especially for sells
-            user = db.query(User).filter(User.id == bot.user_id).first()
-            activity = ActivityCreate(
-                type="trade_executed",
-                description=f"Successfully executed {order_side.value} of {amount_to_trade:.4f} {symbol.split('/')[0]} at market price. Order ID: {order_result.id}",
-                amount=amount_to_trade
-            )
-            activity_service.log_activity(db, user, activity)
+                # Log successful trade activity
+                if user:
+                    status_text = "closed" if order_result.status == "closed" else "open"
+                    activity = ActivityCreate(
+                        type="BOT_TRADE",
+                        description=f"Bot '{bot.name}' successfully executed {order_side.value} of {amount_to_trade:.4f} {symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id}, order id: {order_result.id})",
+                        amount=amount_to_trade
+                    )
+                    activity_service.log_activity(db, user, activity)
+                    logger.info(f"Activity logged for successful bot trade: {pending_trade.id}")
+
+            except Exception as update_error:
+                logger.error(f"Failed to update bot trade record in database: {update_error}")
+                # Don't fail the entire operation if database update fails
+                # The trade was successful on exchange, we just couldn't update our records
 
             # Update bot's current balance (simplified)
             bot.current_balance = account_balance
             db.commit()
             
-            logger.info(f"Trade executed successfully for bot {bot.id}: {order_result.id}")
+            logger.info(f"Bot trade executed successfully: {order_result.id}")
             
         finally:
             loop.close()
 
     except Exception as e:
         logger.error(f"Failed to execute trade for bot {bot.id} on {symbol}: {e}", exc_info=True)
+        
+        # Try to update database with failed status if we have a pending trade
+        try:
+            if 'pending_trade' in locals():
+                pending_trade.status = OrderStatus.REJECTED.value
+                db.commit()
+                
+                # Log failed trade activity
+                user = db.query(User).filter(User.id == bot.user_id).first()
+                if user:
+                    activity = ActivityCreate(
+                        type="BOT_TRADE_FAILED",
+                        description=f"Bot '{bot.name}' failed to execute {signal.value} trade for {symbol}. Error: {e} (trade id: {pending_trade.id})",
+                        amount=None
+                    )
+                    activity_service.log_activity(db, user, activity)
+        except Exception as update_error:
+            logger.error(f"Failed to update failed bot trade record: {update_error}")
+        
+        # Also log the general error
         user = db.query(User).filter(User.id == bot.user_id).first()
-        activity = ActivityCreate(
-            type="error",
-            description=f"Failed to execute {signal.value} trade for {symbol}: {e}",
-            amount=None
-        )
-        activity_service.log_activity(db, user, activity)
+        if user:
+            activity = ActivityCreate(
+                type="error",
+                description=f"Bot '{bot.name}' failed to execute {signal.value} trade for {symbol}: {e}",
+                amount=None
+            )
+            activity_service.log_activity(db, user, activity)
 
 def _execute_strategy(bot: Bot, market_data: pd.DataFrame, current_price: float, stop_loss_manager: StopLossManager) -> Dict[str, Any]:
     """Execute the trading strategy and return signals"""

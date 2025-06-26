@@ -34,7 +34,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = () => {
-    localStorage.removeItem('accessToken');
+    localStorage.removeItem('access_token');
     router.push('/login');
   };
 

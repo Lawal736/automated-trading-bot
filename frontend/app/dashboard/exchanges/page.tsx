@@ -15,7 +15,7 @@ export default function ExchangesPage() {
     try {
       setIsLoading(true);
       setError(null);
-      const accessToken = localStorage.getItem('accessToken');
+      const accessToken = localStorage.getItem('access_token');
       if (!accessToken) {
         throw new Error("Authentication token not found. Please log in again.");
       }

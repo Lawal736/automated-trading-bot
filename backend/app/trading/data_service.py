@@ -14,12 +14,31 @@ class BinanceDataService:
     def __init__(self):
         self.base_url = "https://api.binance.com/api/v3"
         
+    def _format_symbol_for_binance(self, symbol: str) -> str:
+        """
+        Convert symbol format from 'BTC/USDT' to 'BTCUSDT' for Binance API
+        """
+        # Remove any spaces and convert to uppercase
+        symbol = symbol.strip().upper()
+        
+        # If symbol already contains no slash, return as is
+        if '/' not in symbol:
+            return symbol
+        
+        # Convert 'BTC/USDT' to 'BTCUSDT'
+        parts = symbol.split('/')
+        if len(parts) == 2:
+            return f"{parts[0]}{parts[1]}"
+        
+        # If more than 2 parts, just concatenate (fallback)
+        return symbol.replace('/', '')
+        
     def get_klines(self, symbol: str, interval: str, limit: int = 500, start_time: Optional[int] = None, end_time: Optional[int] = None) -> pd.DataFrame:
         """
         Fetch kline/candlestick data from Binance
         
         Args:
-            symbol: Trading pair (e.g., 'BTCUSDT')
+            symbol: Trading pair (e.g., 'BTCUSDT' or 'BTC/USDT')
             interval: Time interval ('1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M')
             limit: Number of klines to fetch (max 1000)
             start_time: Start time in milliseconds
@@ -29,9 +48,13 @@ class BinanceDataService:
             DataFrame with columns: [timestamp, open, high, low, close, volume, close_time, quote_asset_volume, number_of_trades, taker_buy_base_asset_volume, taker_buy_quote_asset_volume, ignore]
         """
         try:
+            # Format symbol for Binance API
+            formatted_symbol = self._format_symbol_for_binance(symbol)
+            logger.info(f"Fetching klines for symbol: {symbol} -> {formatted_symbol}")
+            
             url = f"{self.base_url}/klines"
             params = {
-                'symbol': symbol.upper(),
+                'symbol': formatted_symbol,
                 'interval': interval,
                 'limit': min(limit, 1000)
             }
@@ -74,8 +97,11 @@ class BinanceDataService:
     def get_current_price(self, symbol: str) -> Optional[float]:
         """Get current price for a symbol"""
         try:
+            # Format symbol for Binance API
+            formatted_symbol = self._format_symbol_for_binance(symbol)
+            
             url = f"{self.base_url}/ticker/price"
-            params = {'symbol': symbol.upper()}
+            params = {'symbol': formatted_symbol}
             
             response = requests.get(url, params=params, timeout=5)
             response.raise_for_status()
@@ -90,8 +116,11 @@ class BinanceDataService:
     def get_24hr_ticker(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Get 24-hour ticker statistics"""
         try:
+            # Format symbol for Binance API
+            formatted_symbol = self._format_symbol_for_binance(symbol)
+            
             url = f"{self.base_url}/ticker/24hr"
-            params = {'symbol': symbol.upper()}
+            params = {'symbol': formatted_symbol}
             
             response = requests.get(url, params=params, timeout=5)
             response.raise_for_status()

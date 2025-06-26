@@ -7,6 +7,7 @@ from decimal import Decimal
 import asyncio
 from app.models.exchange import ExchangeConnection
 from app.models.bot import Bot
+from app.models.trading import Trade, OrderStatus, OrderType
 from app.core.cache import price_cache
 from datetime import datetime
 from app.schemas.ticker import Ticker
@@ -126,6 +127,9 @@ class ExchangeService:
     async def execute_trade(
         self, user_id: int, exchange_name: str, trade_order: TradeOrder
     ) -> TradeResult:
+        """
+        Execute a trade with the correct flow: Database First → Exchange → Update Database
+        """
         exchange = await self.get_exchange_client_for_user(user_id, exchange_name)
         if not exchange:
             raise Exception("Exchange connection not found or failed to initialize.")
@@ -134,8 +138,60 @@ class ExchangeService:
             logger.error(f"API credentials not found for user {user_id} on {exchange_name}.")
             raise Exception(f"API credentials are not configured for {exchange_name}.")
 
+        # Get the exchange connection for this user and exchange
+        exchange_conn = (
+            self.session.query(ExchangeConnection)
+            .filter_by(user_id=user_id, exchange_name=exchange_name)
+            .first()
+        )
+        
+        if not exchange_conn:
+            raise Exception(f"Exchange connection not found for user {user_id} and exchange {exchange_name}")
+
+        # STEP 1: Create pending trade record in database FIRST
         try:
-            logger.info(f"Executing trade for user {user_id}: {trade_order.model_dump_json()}")
+            pending_trade = Trade(
+                user_id=user_id,
+                exchange_connection_id=exchange_conn.id,
+                symbol=trade_order.symbol,
+                trade_type="spot",  # Assuming spot trading for manual trades
+                order_type=trade_order.order_type,
+                side=trade_order.side,
+                quantity=trade_order.amount,
+                price=float(trade_order.price) if trade_order.price else 0.0,
+                executed_price=0.0,  # Will be updated after exchange execution
+                status=OrderStatus.PENDING.value,
+                exchange_order_id=None,  # Will be updated after exchange execution
+                executed_at=None  # Will be updated after exchange execution
+            )
+            
+            self.session.add(pending_trade)
+            self.session.commit()
+            self.session.refresh(pending_trade)
+            logger.info(f"Pending trade record created in database: {pending_trade.id}")
+            
+            # Log activity for pending trade
+            from app.services.activity_service import activity_service
+            from app.schemas.activity import ActivityCreate
+            from app.models.user import User
+            
+            user = self.session.query(User).filter(User.id == user_id).first()
+            if user:
+                activity_data = ActivityCreate(
+                    type="MANUAL_TRADE_PENDING",
+                    description=f"Manual spot {trade_order.side} order for {trade_order.amount} {trade_order.symbol.split('/')[0]} at market price. Status: PENDING (trade id: {pending_trade.id})",
+                    amount=trade_order.amount
+                )
+                activity_service.log_activity(self.session, user, activity_data)
+                logger.info(f"Activity logged for pending manual trade: {pending_trade.id}")
+            
+        except Exception as db_error:
+            logger.error(f"Failed to create pending trade record in database: {db_error}")
+            raise Exception(f"Failed to log trade in system: {db_error}")
+
+        # STEP 2: Execute trade on exchange
+        try:
+            logger.info(f"Executing trade on exchange for user {user_id}: {trade_order.model_dump_json()}")
             order_result = await exchange.create_order(
                 symbol=trade_order.symbol,
                 order_type=trade_order.order_type,
@@ -147,12 +203,128 @@ class ExchangeService:
             # In-depth check of the result from ccxt
             order_status = order_result.status
             if not order_result.id or order_status in ['rejected', 'expired', 'canceled']:
-                # Extract more details if available from the 'info' field
+                # Update database with failed status
+                pending_trade.status = OrderStatus.REJECTED.value
+                pending_trade.exchange_order_id = str(order_result.id) if order_result.id else None
+                self.session.commit()
+                
                 error_message = f"Trade failed on exchange with status: {order_status}"
                 logger.error(f"Trade failed for user {user_id}. Reason: {error_message}")
+                
+                # Log failed trade activity
+                if user:
+                    activity_data = ActivityCreate(
+                        type="MANUAL_TRADE_FAILED",
+                        description=f"Manual trade failed for {trade_order.symbol}. Status: {order_status} (trade id: {pending_trade.id})",
+                        amount=trade_order.amount
+                    )
+                    activity_service.log_activity(self.session, user, activity_data)
+                
                 raise Exception(error_message)
 
-            # CCXT returns an Order object. We adapt it to our Pydantic model.
+            # STEP 3: Update database with successful execution
+            try:
+                # Update main trade record
+                pending_trade.status = OrderStatus.FILLED.value if order_result.status == "closed" else OrderStatus.OPEN.value
+                pending_trade.executed_price = float(order_result.price) if order_result.price else float(trade_order.price or 0)
+                pending_trade.exchange_order_id = str(order_result.id)
+                pending_trade.executed_at = datetime.utcnow()
+                self.session.commit()
+                logger.info(f"Trade record updated in database: {pending_trade.id}")
+
+                # Log successful trade activity
+                if user:
+                    status_text = "closed" if order_result.status == "closed" else "open"
+                    activity_data = ActivityCreate(
+                        type="MANUAL_TRADE",
+                        description=f"Manual spot {trade_order.side} order for {trade_order.amount} {trade_order.symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id})",
+                        amount=trade_order.amount
+                    )
+                    activity_service.log_activity(self.session, user, activity_data)
+                    logger.info(f"Activity logged for successful manual trade: {pending_trade.id}")
+
+            except Exception as update_error:
+                logger.error(f"Failed to update trade record in database: {update_error}")
+                # Don't fail the entire operation if database update fails
+                # The trade was successful on exchange, we just couldn't update our records
+
+            # STEP 4: Create stop loss order if specified
+            stop_loss_order = None
+            logger.info(f"Checking for stop loss: trade_order.stop_loss = {trade_order.stop_loss}")
+            if trade_order.stop_loss:
+                logger.info(f"Stop loss value provided: {trade_order.stop_loss}")
+                try:
+                    stop_side = "sell" if trade_order.side == "buy" else "buy"
+                    logger.info(f"Stop loss side: {stop_side}")
+                    
+                    # Create pending stop loss record first
+                    pending_stop_loss = Trade(
+                        user_id=user_id,
+                        exchange_connection_id=exchange_conn.id,
+                        symbol=trade_order.symbol,
+                        trade_type="STOP_LOSS",
+                        order_type="stop-limit",  # Use "stop-limit" for Binance spot stop loss orders
+                        side=stop_side,
+                        quantity=trade_order.amount,
+                        price=Decimal(str(trade_order.stop_loss)),  # This will be the limit price
+                        status="pending"
+                    )
+                    
+                    self.session.add(pending_stop_loss)
+                    self.session.commit()
+                    
+                    # Execute stop loss on exchange
+                    logger.info(f"Creating stop loss order on exchange: symbol={trade_order.symbol}, order_type=stop-limit, side={stop_side}, amount={trade_order.amount}, stop_price={trade_order.stop_loss}, limit_price={trade_order.stop_loss}")
+                    stop_loss_order = await exchange.create_order(
+                        symbol=trade_order.symbol,
+                        order_type="stop-limit",  # Use "stop-limit" for Binance spot stop loss orders
+                        side=stop_side,
+                        amount=trade_order.amount,
+                        price=trade_order.stop_loss,  # Limit price (same as stop price for simplicity)
+                        params={
+                            "stopPrice": trade_order.stop_loss  # Stop price (when to trigger)
+                        }
+                    )
+                    
+                    logger.info(f"Stop loss order response: {stop_loss_order}")
+                    
+                    # Update stop loss record with exchange result
+                    pending_stop_loss.status = OrderStatus.OPEN.value
+                    pending_stop_loss.exchange_order_id = str(stop_loss_order.id)
+                    pending_stop_loss.executed_at = datetime.utcnow()
+                    self.session.commit()
+                    logger.info(f"Stop loss order created: {stop_loss_order.id} at price {trade_order.stop_loss}")
+                    
+                    # Log activity for stop loss order
+                    if user:
+                        activity_data = ActivityCreate(
+                            type="STOP_LOSS_ORDER",
+                            description=f"Stop loss order created for {trade_order.symbol} at {trade_order.stop_loss} (order id: {stop_loss_order.id}, trade id: {pending_stop_loss.id})",
+                            amount=trade_order.amount
+                        )
+                        activity_service.log_activity(self.session, user, activity_data)
+                        
+                except Exception as stop_loss_error:
+                    logger.warning(f"Failed to create stop loss order: {stop_loss_error}")
+                    logger.warning(f"Stop loss error details: {type(stop_loss_error).__name__}: {str(stop_loss_error)}")
+                    # Update stop loss record with failed status
+                    if 'pending_stop_loss' in locals():
+                        pending_stop_loss.status = OrderStatus.REJECTED.value
+                        self.session.commit()
+                    
+                    # Log activity for stop loss failure
+                    if user:
+                        activity_data = ActivityCreate(
+                            type="STOP_LOSS_ORDER_FAILED",
+                            description=f"Failed to create stop loss order for {trade_order.symbol} at {trade_order.stop_loss}: {stop_loss_error}",
+                            amount=trade_order.amount
+                        )
+                        activity_service.log_activity(self.session, user, activity_data)
+                    # Don't fail the main trade if stop loss fails
+            else:
+                logger.info("No stop loss value provided, skipping stop loss order creation")
+
+            # Return the result
             trade_result = TradeResult(
                 id=str(order_result.id),
                 symbol=order_result.symbol,
@@ -162,9 +334,26 @@ class ExchangeService:
             )
             logger.info(f"Trade executed successfully: {trade_result.model_dump_json()}")
             return trade_result
-        except Exception as e:
-            logger.error(f"Trade execution failed for user {user_id}: {e}", exc_info=True)
-            raise e
+
+        except Exception as exchange_error:
+            # Update database with failed status if exchange execution fails
+            try:
+                pending_trade.status = OrderStatus.REJECTED.value
+                self.session.commit()
+                
+                # Log failed trade activity
+                if user:
+                    activity_data = ActivityCreate(
+                        type="MANUAL_TRADE_FAILED",
+                        description=f"Manual trade failed for {trade_order.symbol}. Exchange error: {exchange_error} (trade id: {pending_trade.id})",
+                        amount=trade_order.amount
+                    )
+                    activity_service.log_activity(self.session, user, activity_data)
+            except Exception as update_error:
+                logger.error(f"Failed to update failed trade record: {update_error}")
+            
+            logger.error(f"Trade execution failed for user {user_id}: {exchange_error}", exc_info=True)
+            raise exchange_error
         finally:
             if exchange:
                 await exchange.close()

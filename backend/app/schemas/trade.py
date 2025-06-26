@@ -7,6 +7,7 @@ class TradeOrder(BaseModel):
     order_type: Literal["market", "limit"] = Field(..., description="The order type")
     amount: float = Field(..., description="The amount to trade")
     price: Optional[float] = Field(None, description="The price for limit orders")
+    stop_loss: Optional[float] = Field(None, description="Stop loss price for the order")
 
 class TradeResult(BaseModel):
     id: str

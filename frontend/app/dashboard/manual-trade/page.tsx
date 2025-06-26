@@ -39,6 +39,7 @@ export default function ManualTradePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPairs = async () => {
@@ -122,12 +123,13 @@ export default function ManualTradePage() {
       return;
     }
     setIsLoading(true);
-    
-    const token = localStorage.getItem('accessToken');
+    setError(null);
+
+    const token = localStorage.getItem('access_token');
     if (!token) {
-        toast.error("Authentication token not found. Please log in again.");
-        setIsLoading(false);
-        return;
+      setError('Authentication token not found.');
+      setIsLoading(false);
+      return;
     }
 
     const order: TradeOrder = {
@@ -136,6 +138,7 @@ export default function ManualTradePage() {
       order_type: tradeForm.orderType,
       amount: tradeForm.amount,
       price: tradeForm.orderType === 'limit' ? tradeForm.price : undefined,
+      stop_loss: tradeForm.stopLoss !== undefined && !isNaN(tradeForm.stopLoss) ? tradeForm.stopLoss : undefined,
     };
 
     try {
@@ -149,10 +152,10 @@ export default function ManualTradePage() {
       console.log("Attempting to log activity...");
       const activityLog: ActivityCreate = {
         type: "MANUAL_TRADE",
-        description: `Manual ${tradeForm.tradeType} ${tradeForm.side} order for ${tradeForm.amount} ${tradeForm.pair.split('/')[0]} at ${tradeForm.orderType} price.`,
+        description: `Manual ${tradeForm.tradeType} ${tradeForm.side} order for ${tradeForm.amount} ${tradeForm.pair.split('/')[0]} at ${tradeForm.orderType} price. Status: ${tradeResult.status}`,
         amount: tradeForm.total
       };
-      await logActivity(token, activityLog);
+      await logActivity(activityLog);
       console.log("Activity logged successfully.");
 
       router.push('/dashboard/reports');
@@ -333,8 +336,14 @@ export default function ManualTradePage() {
                   <input
                     type="number"
                     id="stopLoss"
+                    step="0.01"
+                    min="0"
                     value={tradeForm.stopLoss || ''}
-                    onChange={(e) => setTradeForm(prev => ({...prev, stopLoss: parseFloat(e.target.value)}))}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const parsedValue = value === '' ? undefined : parseFloat(value);
+                      setTradeForm(prev => ({...prev, stopLoss: parsedValue}));
+                    }}
                     className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-red-500"
                     placeholder="Optional"
                   />

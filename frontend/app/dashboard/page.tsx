@@ -52,7 +52,7 @@ export default function DashboardPage() {
   const router = useRouter();
 
   const fetchAllData = useCallback(async (isInitialLoad = false) => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('access_token');
     if (!token) {
       router.push('/login');
       return;
@@ -92,7 +92,7 @@ export default function DashboardPage() {
       .finally(() => setBotsLoading(false));
 
     // Fetch Activities
-    getActivities(token)
+    getActivities()
       .then(data => setActivities(data.slice(0, 5))) // Get last 5 activities
       .catch(err => {
         console.error('Failed to fetch activities:', err);
@@ -118,7 +118,7 @@ export default function DashboardPage() {
   }, [fetchAllData]);
 
   const handleStartBot = async (botId: number) => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('access_token');
     if (!token) {
       setBotsError('Authentication token not found.');
       return;
@@ -132,7 +132,7 @@ export default function DashboardPage() {
   };
 
   const handleStopBot = async (botId: number) => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('access_token');
     if (!token) {
       setBotsError('Authentication token not found.');
       return;
@@ -148,7 +148,7 @@ export default function DashboardPage() {
   const handleDeleteBot = async () => {
     if (!botToDelete) return;
     
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('access_token');
     if (!token) {
       setBotsError('Authentication token not found.');
       return;

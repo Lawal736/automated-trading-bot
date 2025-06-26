@@ -108,7 +108,7 @@ export default function CreateBotPage() {
 
   useEffect(() => {
     const fetchExchanges = async () => {
-      const accessToken = localStorage.getItem('accessToken');
+      const accessToken = localStorage.getItem('access_token');
       if (!accessToken) return;
       try {
         const connections = await getExchanges();
@@ -178,7 +178,7 @@ export default function CreateBotPage() {
     setLocalBacktestResult(null);
     setBacktestResult(null);
 
-    const accessToken = localStorage.getItem('accessToken');
+    const accessToken = localStorage.getItem('access_token');
     if (!accessToken) {
       setError('You must be logged in to run backtests.');
       setBacktestLoading(false);

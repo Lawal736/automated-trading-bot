@@ -29,7 +29,7 @@ export default function EditBotPage() {
   const [activeSection, setActiveSection] = useState('basic');
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('access_token');
     if (!token || !botId) {
       router.push('/login');
       return;
@@ -86,7 +86,7 @@ export default function EditBotPage() {
     setError(null);
     setSuccess(null);
 
-    const token = localStorage.getItem('accessToken');
+    const token = localStorage.getItem('access_token');
     if (!token) {
       setError("Authentication failed. Please log in again.");
       return;
