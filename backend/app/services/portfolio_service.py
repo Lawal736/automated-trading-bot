@@ -18,9 +18,6 @@ def get_portfolio_data(db: Session, *, user_id: int) -> Portfolio:
     """
     Calculates and returns portfolio data, using a cache to improve performance.
     """
-    # Clear cache to ensure fresh data (temporary fix for development)
-    clear_portfolio_cache(user_id)
-    
     # 1. Try to fetch from cache first
     cache_key = get_cache_key_for_user_portfolio(user_id)
     cached_portfolio = cache_client.get(cache_key)
@@ -57,6 +54,8 @@ def get_portfolio_data(db: Session, *, user_id: int) -> Portfolio:
     # Count total trades from trades table (unique trade operations)
     # This counts each trade operation, not individual buy/sell orders
     total_trades = db.query(Trade).filter(Trade.user_id == user_id).count()
+    
+    logger.info(f"Portfolio calculation - User {user_id}: {total_trades} trades, {active_positions} positions")
 
     portfolio = Portfolio(
         total_balance=total_balance,
