@@ -1,10 +1,11 @@
 from datetime import date, timedelta
 from typing import List, Optional
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from collections import defaultdict
 
 from .. import models
-from ..schemas.report import Report, DailyPnl, StrategyPerformance
+from ..schemas.report import Report, DailyPnl, StrategyPerformance, TradeStats
 from ..services import activity_service
 
 def get_full_report(db: Session, *, user_id: int) -> Report:
@@ -65,6 +66,57 @@ def get_full_report(db: Session, *, user_id: int) -> Report:
                 win_loss_ratio=s_ratio,
             )
         )
+
+    # --- Trade Statistics from Trades Table ---
+    user_trades_query = db.query(models.Trade).filter(models.Trade.user_id == user_id)
+    
+    # Status breakdown
+    filled_trades = user_trades_query.filter(models.Trade.status == 'filled').count()
+    rejected_trades = user_trades_query.filter(models.Trade.status == 'rejected').count()
+    pending_trades = user_trades_query.filter(models.Trade.status == 'pending').count()
+    
+    # Side breakdown
+    buy_trades = user_trades_query.filter(models.Trade.side == 'buy').count()
+    sell_trades = user_trades_query.filter(models.Trade.side == 'sell').count()
+    
+    # Type breakdown
+    spot_trades = user_trades_query.filter(models.Trade.trade_type == 'spot').count()
+    futures_trades = user_trades_query.filter(models.Trade.trade_type == 'futures').count()
+    
+    # Manual vs Bot trades
+    manual_trades = user_trades_query.filter(models.Trade.bot_id.is_(None)).count()
+    bot_trades = user_trades_query.filter(models.Trade.bot_id.isnot(None)).count()
+    
+    # Calculate success rate (filled trades / total trades)
+    total_trades_from_table = user_trades_query.count()
+    success_rate = filled_trades / total_trades_from_table if total_trades_from_table > 0 else 0
+    
+    # Calculate total volume (sum of executed prices * quantities for filled trades)
+    volume_result = db.query(
+        func.sum(models.Trade.executed_price * models.Trade.quantity)
+    ).filter(
+        models.Trade.user_id == user_id,
+        models.Trade.status == 'filled',
+        models.Trade.executed_price.isnot(None)
+    ).scalar()
+    
+    total_volume = float(volume_result) if volume_result else 0
+
+    # Create trade stats
+    trade_stats = TradeStats(
+        total_trades=total_trades_from_table,
+        filled_trades=filled_trades,
+        rejected_trades=rejected_trades,
+        pending_trades=pending_trades,
+        buy_trades=buy_trades,
+        sell_trades=sell_trades,
+        spot_trades=spot_trades,
+        futures_trades=futures_trades,
+        manual_trades=manual_trades,
+        bot_trades=bot_trades,
+        success_rate=success_rate,
+        total_volume=total_volume
+    )
         
     return Report(
         daily_pnl_data=daily_pnl_data,
@@ -74,4 +126,5 @@ def get_full_report(db: Session, *, user_id: int) -> Report:
         avg_loss=avg_loss,
         total_trades=total_trades,
         strategy_performance=strategy_performance,
+        trade_stats=trade_stats,
     ) 

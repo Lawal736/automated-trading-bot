@@ -8,7 +8,7 @@ from app.trading.data_service import data_service
 from app.services import activity_service, bot_service
 from sqlalchemy.orm import Session
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any
 import pandas as pd
 from app.models.strategy import Strategy
@@ -23,6 +23,8 @@ from app.models.exchange import ExchangeConnection
 from app.trading.trading_service import trading_service
 from app.schemas.activity import ActivityCreate
 from app.models.user import User
+from sqlalchemy import and_
+import asyncio
 
 logger = get_logger(__name__)
 
@@ -70,7 +72,6 @@ def sync_open_positions():
                 
             logger.info(f"Found {len(db_positions)} open positions to sync for {connection.exchange_name}")
             
-            import asyncio
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -169,7 +170,6 @@ def run_trading_bot_strategy(self, bot_id: int):
         
         if connection:
             # Add the exchange connection to the trading service
-            import asyncio
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -365,7 +365,6 @@ def run_trading_bot_strategy(self, bot_id: int):
                         ).first()
                         
                         if connection:
-                            import asyncio
                             try:
                                 loop = asyncio.new_event_loop()
                                 asyncio.set_event_loop(loop)
@@ -568,13 +567,13 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                         entry_price = float(order_result.price) if order_result.price else current_price
                         
                         position = Position(
-                user_id=bot.user_id,
-                bot_id=bot.id,
-                exchange_connection_id=bot.exchange_connection_id,
-                symbol=symbol,
+                            user_id=bot.user_id,
+                            bot_id=bot.id,
+                            exchange_connection_id=bot.exchange_connection_id,
+                            symbol=symbol,
                             trade_type="spot",  # Assuming spot trading for bots
-                side=order_side.value,
-                quantity=amount_to_trade,
+                            side=order_side.value,
+                            quantity=amount_to_trade,
                             entry_price=entry_price,
                             current_price=entry_price,
                             leverage=1,  # Spot trading has leverage of 1
@@ -584,10 +583,10 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                             total_pnl=0.0,
                             is_open=True,
                             opened_at=datetime.utcnow()
-            )
-            
+                        )
+                        
                         db.add(position)
-            db.commit()
+                        db.commit()
                         logger.info(f"Position record created for bot trade: {position.id} with order ID {order_result.id}")
 
                         # Verify position was created successfully
@@ -610,8 +609,8 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                     activity = ActivityCreate(
                         type="BOT_TRADE",
                         description=f"Bot '{bot.name}' successfully executed {order_side.value} of {amount_to_trade:.4f} {symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id}, order id: {order_result.id})",
-                amount=amount_to_trade
-            )
+                        amount=amount_to_trade
+                    )
                     activity_service.log_activity(db, user, activity)
                     logger.info(f"Activity logged for successful bot trade: {pending_trade.id}")
 
@@ -657,7 +656,7 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                 type="error",
                 description=f"Bot '{bot.name}' failed to execute {signal.value} trade for {symbol}: {e}",
                 amount=None
-        )
+            )
             activity_service.log_activity(db, user, activity)
 
 def _execute_strategy(bot: Bot, market_data: pd.DataFrame, current_price: float, stop_loss_manager: StopLossManager) -> Dict[str, Any]:
@@ -755,3 +754,138 @@ def log_stoploss_adjustment(db, bot, symbol, new_stoploss):
         amount=new_stoploss
     )
     activity_service.log_activity(db, user, activity) 
+
+@celery_app.task(name="tasks.retry_stop_loss_order")
+def retry_stop_loss_order(trade_id: int):
+    db: Session = SessionLocal()
+    try:
+        trade = db.query(Trade).filter(Trade.id == trade_id).first()
+        if not trade or trade.status not in [OrderStatus.OPEN.value, OrderStatus.PENDING.value]:
+            return
+        if trade.stop_loss_failed:
+            return
+        if trade.trade_type != "STOP_LOSS":
+            return
+        max_retries = 5
+        now = datetime.utcnow()
+        retry_count = trade.stop_loss_retry_count or 0
+        if retry_count < 3:
+            next_interval = timedelta(minutes=5) / 3
+        else:
+            next_interval = timedelta(minutes=5) / 2
+        # Actual stop loss placement logic
+        try:
+            conn = db.query(ExchangeConnection).filter(ExchangeConnection.id == trade.exchange_connection_id).first()
+            if not conn:
+                raise Exception("Exchange connection not found")
+            exchange_service = ExchangeService(db)
+            exchange = asyncio.run(exchange_service.get_exchange_client_for_user(trade.user_id, conn.exchange_name))
+            stop_side = "sell" if trade.side == "buy" else "buy"
+            stop_loss_order = asyncio.run(exchange.create_order(
+                symbol=trade.symbol,
+                order_type="stop-limit",
+                side=stop_side,
+                amount=trade.quantity,
+                price=trade.price,
+                params={"stopPrice": trade.price}
+            ))
+            trade.stop_loss_retry_count = 0
+            trade.stop_loss_last_attempt = now
+            trade.status = OrderStatus.OPEN.value
+            trade.exchange_order_id = str(stop_loss_order.id)
+            db.commit()
+            user = db.query(User).filter(User.id == trade.user_id).first()
+            if user:
+                activity_data = ActivityCreate(
+                    type="STOP_LOSS_ORDER",
+                    description=f"Stop loss order placed for {trade.symbol} (order id: {stop_loss_order.id})",
+                    amount=trade.quantity
+                )
+                activity_service.log_activity(db, user, activity_data)
+            return
+        except Exception as e:
+            retry_count += 1
+            trade.stop_loss_retry_count = retry_count
+            trade.stop_loss_last_attempt = now
+            db.commit()
+            if retry_count < max_retries:
+                retry_stop_loss_order.apply_async((trade_id,), eta=now + next_interval)
+            else:
+                trade.stop_loss_failed = True
+                db.commit()
+                try:
+                    conn = db.query(ExchangeConnection).filter(ExchangeConnection.id == trade.exchange_connection_id).first()
+                    if not conn:
+                        raise Exception("Exchange connection not found for closing trade")
+                    exchange_service = ExchangeService(db)
+                    exchange = asyncio.run(exchange_service.get_exchange_client_for_user(trade.user_id, conn.exchange_name))
+                    close_order = asyncio.run(exchange.create_order(
+                        symbol=trade.symbol,
+                        order_type="market",
+                        side="sell" if trade.side == "buy" else "buy",
+                        amount=trade.quantity
+                    ))
+                    trade.status = OrderStatus.FILLED.value
+                    trade.exchange_order_id = str(close_order.id)
+                    db.commit()
+                    user = db.query(User).filter(User.id == trade.user_id).first()
+                    if user:
+                        activity_data = ActivityCreate(
+                            type="STOP_LOSS_CLOSE_TRADE",
+                            description=f"Closed trade {trade.id} after stop loss failed 5 times (order id: {close_order.id})",
+                            amount=trade.quantity
+                        )
+                        activity_service.log_activity(db, user, activity_data)
+                except Exception as close_e:
+                    logger.error(f"Failed to close trade {trade.id} after stop loss retries: {close_e}")
+    except Exception as outer_e:
+        logger.error(f"Error in retry_stop_loss_order for trade {trade_id}: {outer_e}")
+    finally:
+        db.close()
+
+@celery_app.on_after_configure.connect
+def setup_stop_loss_sweep(sender, **kwargs):
+    # Add hourly sweep for failed stop loss trades
+    sender.add_periodic_task(3600, sweep_and_close_failed_stop_loss_trades.s(), name='Sweep and close failed stop loss trades every hour')
+
+@celery_app.task(name="tasks.sweep_and_close_failed_stop_loss_trades")
+def sweep_and_close_failed_stop_loss_trades():
+    db: Session = SessionLocal()
+    try:
+        open_trades = db.query(Trade).filter(
+            and_(
+                Trade.trade_type == "STOP_LOSS",
+                Trade.status.in_([OrderStatus.OPEN.value, OrderStatus.PENDING.value]),
+                Trade.stop_loss_failed == True
+            )
+        ).all()
+        for trade in open_trades:
+            try:
+                conn = db.query(ExchangeConnection).filter(ExchangeConnection.id == trade.exchange_connection_id).first()
+                if not conn:
+                    continue
+                exchange_service = ExchangeService(db)
+                exchange = asyncio.run(exchange_service.get_exchange_client_for_user(trade.user_id, conn.exchange_name))
+                close_order = asyncio.run(exchange.create_order(
+                    symbol=trade.symbol,
+                    order_type="market",
+                    side="sell" if trade.side == "buy" else "buy",
+                    amount=trade.quantity
+                ))
+                trade.status = OrderStatus.FILLED.value
+                trade.exchange_order_id = str(close_order.id)
+                db.commit()
+                user = db.query(User).filter(User.id == trade.user_id).first()
+                if user:
+                    activity_data = ActivityCreate(
+                        type="STOP_LOSS_SWEEP_CLOSE_TRADE",
+                        description=f"Hourly sweep closed trade {trade.id} (order id: {close_order.id})",
+                        amount=trade.quantity
+                    )
+                    activity_service.log_activity(db, user, activity_data)
+            except Exception as e:
+                logger.error(f"Hourly sweep: Failed to close trade {trade.id}: {e}")
+    except Exception as outer_e:
+        logger.error(f"Error in sweep_and_close_failed_stop_loss_trades: {outer_e}")
+    finally:
+        db.close()

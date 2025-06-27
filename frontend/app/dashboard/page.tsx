@@ -17,6 +17,7 @@ import {
   ArrowUpIcon,
   ArrowPathIcon as RefreshIcon,
   XMarkIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import { getBots, startBot, stopBot, deleteBot } from '../../lib/bots';
 import { getActivities } from '../../lib/activities';
@@ -248,11 +249,18 @@ export default function DashboardPage() {
             <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-bold">Trading Bots</h2>
-                <Link href="/dashboard/create-bot">
-                  <button className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700">
-                    <PlusIcon className="h-5 w-5 mr-2" /> Create Bot
-                  </button>
-                </Link>
+                <div className="flex space-x-2">
+                  <Link href="/dashboard/trades">
+                    <button className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-indigo-700">
+                      <DocumentTextIcon className="h-5 w-5 mr-2" /> View Trades
+                    </button>
+                  </Link>
+                  <Link href="/dashboard/create-bot">
+                    <button className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-700">
+                      <PlusIcon className="h-5 w-5 mr-2" /> Create Bot
+                    </button>
+                  </Link>
+                </div>
               </div>
               {botsLoading ? (
                 <div className="text-center p-8">Loading bots...</div>

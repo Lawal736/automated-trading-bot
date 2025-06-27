@@ -29,6 +29,7 @@ interface DetailedUser extends User {
     price: number;
     status: string;
     created_at: string;
+    executed_price?: number;
   }>;
   recent_activities: Array<{
     id: number;
@@ -376,7 +377,7 @@ export default function AdminUsersPage() {
                                   {trade.side.toUpperCase()}
                                 </td>
                                 <td className="px-3 py-2">{trade.quantity}</td>
-                                <td className="px-3 py-2">${trade.price}</td>
+                                <td className="px-3 py-2">${trade.status === 'filled' ? trade.executed_price : trade.price}</td>
                                 <td className="px-3 py-2">{trade.status}</td>
                                 <td className="px-3 py-2">{trade.created_at.slice(0, 10)}</td>
                               </tr>

@@ -13,12 +13,12 @@ import {
   ClockIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
-import { getAdminTrades, AdminTrade } from '../../../../lib/admin';
-import ProtectedRoute from '../../../components/ProtectedRoute';
+import { getUserTrades, UserTrade } from '../../../lib/trades';
+import ProtectedRoute from '../../components/ProtectedRoute';
 
-export default function AdminTradesPage() {
+export default function UserTradesPage() {
   const router = useRouter();
-  const [trades, setTrades] = useState<AdminTrade[]>([]);
+  const [trades, setTrades] = useState<UserTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
@@ -39,7 +39,7 @@ export default function AdminTradesPage() {
         return;
       }
 
-      const data = await getAdminTrades(
+      const data = await getUserTrades(
         token,
         skip,
         limit,
@@ -100,23 +100,23 @@ export default function AdminTradesPage() {
   const currentPage = Math.floor(skip / limit) + 1;
 
   return (
-    <ProtectedRoute requireAdmin={true}>
+    <ProtectedRoute>
       <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-6 lg:p-8">
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
             <button
-              onClick={() => router.push('/dashboard/admin')}
+              onClick={() => router.push('/dashboard')}
               className="flex items-center space-x-2 text-gray-400 hover:text-white mb-4"
             >
               <ArrowLeftIcon className="h-5 w-5" />
-              <span>Back to Admin Dashboard</span>
+              <span>Back to Dashboard</span>
             </button>
             <h1 className="text-3xl font-bold flex items-center">
               <DocumentTextIcon className="h-8 w-8 mr-3 text-blue-400" />
-              All Trades
+              My Trades
             </h1>
-            <p className="text-gray-400 mt-2">View and filter all trading activity</p>
+            <p className="text-gray-400 mt-2">View and filter your trading activity</p>
           </div>
 
           {/* Filters */}
@@ -285,24 +285,26 @@ export default function AdminTradesPage() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="mt-6 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
+            <div className="bg-gray-800 p-4 rounded-lg border border-gray-700 mt-6">
+              <div className="flex items-center justify-between">
                 <button
                   onClick={() => setSkip(Math.max(0, skip - limit))}
                   disabled={skip === 0}
-                  className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center px-3 py-2 text-sm font-medium text-gray-400 bg-gray-700 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ChevronLeftIcon className="h-5 w-5" />
+                  <ChevronLeftIcon className="h-4 w-4 mr-1" />
+                  Previous
                 </button>
-                <span className="text-gray-400">
+                <span className="text-sm text-gray-400">
                   Page {currentPage} of {totalPages}
                 </span>
                 <button
                   onClick={() => setSkip(skip + limit)}
                   disabled={skip + limit >= total}
-                  className="px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center px-3 py-2 text-sm font-medium text-gray-400 bg-gray-700 rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ChevronRightIcon className="h-5 w-5" />
+                  Next
+                  <ChevronRightIcon className="h-4 w-4 ml-1" />
                 </button>
               </div>
             </div>

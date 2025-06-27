@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeftIcon, DocumentChartBarIcon, ArrowUpCircleIcon, ArrowDownCircleIcon, ScaleIcon, ChartPieIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, DocumentChartBarIcon, ArrowUpCircleIcon, ArrowDownCircleIcon, ScaleIcon, ChartPieIcon, CurrencyDollarIcon, ClockIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
 import { getReport, ReportData } from '../../../lib/reports';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
-const StatCard = ({ title, value, icon, a_value }: { title: string, value: string, icon: React.ReactNode, a_value?: string }) => (
+const StatCard = ({ title, value, icon, a_value, color = "text-white" }: { title: string, value: string, icon: React.ReactNode, a_value?: string, color?: string }) => (
   <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
     <div className="flex items-center">
       {icon}
       <div className="ml-4">
         <p className="text-sm text-gray-400">{title}</p>
-        <p className="text-2xl font-bold">{value}</p>
+        <p className={`text-2xl font-bold ${color}`}>{value}</p>
         {a_value && <p className="text-xs text-gray-500">{a_value}</p>}
       </div>
     </div>
@@ -52,6 +52,25 @@ export default function ReportsPage() {
   
   const formatPercent = (value) => `${(value * 100).toFixed(1)}%`;
 
+  const formatNumber = (value) => value.toLocaleString();
+
+  // Prepare data for pie chart
+  const getTradeTypeData = () => {
+    if (!report?.trade_stats) return [];
+    return [
+      { name: 'Spot', value: report.trade_stats.spot_trades, color: '#3B82F6' },
+      { name: 'Futures', value: report.trade_stats.futures_trades, color: '#F59E0B' },
+    ].filter(item => item.value > 0);
+  };
+
+  const getTradeSideData = () => {
+    if (!report?.trade_stats) return [];
+    return [
+      { name: 'Buy', value: report.trade_stats.buy_trades, color: '#10B981' },
+      { name: 'Sell', value: report.trade_stats.sell_trades, color: '#EF4444' },
+    ].filter(item => item.value > 0);
+  };
+
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
@@ -81,23 +100,128 @@ export default function ReportsPage() {
                   title="Total Net P&L"
                   value={formatPnl(report.total_pnl)}
                   icon={<ScaleIcon className={`h-8 w-8 ${report.total_pnl >= 0 ? 'text-green-500': 'text-red-500'}`} />}
+                  color={report.total_pnl >= 0 ? 'text-green-500' : 'text-red-500'}
                 />
                 <StatCard 
-                  title="Win/Loss Ratio"
-                  value={formatPercent(report.win_loss_ratio)}
+                  title="Success Rate"
+                  value={formatPercent(report.trade_stats?.success_rate || 0)}
                   a_value={`${report.total_trades} total trades`}
                   icon={<ChartPieIcon className="h-8 w-8 text-blue-500" />}
+                  color="text-blue-400"
                 />
                 <StatCard 
                   title="Average Profit"
                   value={formatPnl(report.avg_profit)}
                   icon={<ArrowUpCircleIcon className="h-8 w-8 text-green-500" />}
+                  color="text-green-400"
                 />
                 <StatCard 
                   title="Average Loss"
                   value={formatPnl(report.avg_loss)}
                   icon={<ArrowDownCircleIcon className="h-8 w-8 text-red-500" />}
+                  color="text-red-400"
                 />
+              </div>
+
+              {/* Trade Statistics */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Trade Counts */}
+                <div className="bg-gray-900 p-6 rounded-lg border border-gray-700">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center">
+                    <DocumentChartBarIcon className="h-6 w-6 mr-2 text-blue-400" />
+                    Trade Statistics
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-gray-800 p-4 rounded">
+                      <div className="flex items-center">
+                        <CheckCircleIcon className="h-5 w-5 text-green-400 mr-2" />
+                        <div>
+                          <p className="text-sm text-gray-400">Filled</p>
+                          <p className="text-lg font-bold text-green-400">{formatNumber(report.trade_stats?.filled_trades || 0)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded">
+                      <div className="flex items-center">
+                        <XCircleIcon className="h-5 w-5 text-red-400 mr-2" />
+                        <div>
+                          <p className="text-sm text-gray-400">Rejected</p>
+                          <p className="text-lg font-bold text-red-400">{formatNumber(report.trade_stats?.rejected_trades || 0)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded">
+                      <div className="flex items-center">
+                        <ClockIcon className="h-5 w-5 text-yellow-400 mr-2" />
+                        <div>
+                          <p className="text-sm text-gray-400">Pending</p>
+                          <p className="text-lg font-bold text-yellow-400">{formatNumber(report.trade_stats?.pending_trades || 0)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="bg-gray-800 p-4 rounded">
+                      <div className="flex items-center">
+                        <CurrencyDollarIcon className="h-5 w-5 text-purple-400 mr-2" />
+                        <div>
+                          <p className="text-sm text-gray-400">Total Volume</p>
+                          <p className="text-lg font-bold text-purple-400">${formatNumber(report.trade_stats?.total_volume || 0)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Trade Type Distribution */}
+                <div className="bg-gray-900 p-6 rounded-lg border border-gray-700">
+                  <h3 className="text-lg font-semibold mb-4">Trade Type Distribution</h3>
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={getTradeTypeData()}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {getTradeTypeData().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+
+              {/* Trade Side Distribution */}
+              <div className="bg-gray-900 p-6 rounded-lg border border-gray-700">
+                <h3 className="text-lg font-semibold mb-4">Buy vs Sell Distribution</h3>
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={getTradeSideData()}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {getTradeSideData().map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
 
               {/* P&L Chart */}

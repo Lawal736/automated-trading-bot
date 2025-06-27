@@ -72,6 +72,13 @@ class Trade(Base):
     strategy = relationship("Strategy", back_populates="trades")
     exchange_connection = relationship("ExchangeConnection", back_populates="trades")
 
+    # Stop loss retry tracking
+    stop_loss_retry_count = Column(Integer, default=0)
+    stop_loss_last_attempt = Column(DateTime(timezone=True), nullable=True)
+    stop_loss_failed = Column(Boolean, default=False)
+    exchange_info = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+
 
 class Position(Base):
     """Open positions model"""
