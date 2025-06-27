@@ -9,12 +9,14 @@ import {
   RectangleStackIcon,
   Bars3Icon,
   XMarkIcon,
-  BriefcaseIcon
+  BriefcaseIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Menu } from '@headlessui/react';
 import { ChevronDownIcon } from '@heroicons/react/20/solid';
+import { useAuth } from '../contexts/AuthContext';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
@@ -32,6 +34,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { isAdmin } = useAuth();
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
@@ -110,6 +113,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                           {item.name}
                         </Link>
                       ))}
+                      {isAdmin && (
+                        <Link
+                          href="/dashboard/admin"
+                          className={classNames(
+                            pathname === '/dashboard/admin'
+                              ? 'bg-gray-800 text-white'
+                              : 'text-gray-400 hover:bg-gray-800 hover:text-white',
+                            'group flex items-center px-2 py-2 text-base font-medium rounded-md'
+                          )}
+                        >
+                          <ShieldCheckIcon
+                            className="mr-4 h-6 w-6 flex-shrink-0 text-gray-500"
+                            aria-hidden="true"
+                          />
+                          Admin
+                        </Link>
+                      )}
                     </nav>
                   </div>
                 </Dialog.Panel>
@@ -143,6 +163,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                 {item.name}
                             </Link>
                         ))}
+                        {isAdmin && (
+                            <Link
+                                href="/dashboard/admin"
+                                className={classNames(
+                                    pathname === '/dashboard/admin' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white',
+                                    'group flex items-center px-2 py-2 text-sm font-medium rounded-md'
+                                )}
+                            >
+                                <ShieldCheckIcon className="mr-3 h-6 w-6 flex-shrink-0 text-gray-500" />
+                                Admin
+                            </Link>
+                        )}
                     </nav>
                 </div>
             </div>

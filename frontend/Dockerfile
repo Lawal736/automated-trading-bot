@@ -3,6 +3,9 @@ FROM node:18-alpine
 # Set work directory
 WORKDIR /app
 
+# Install curl for healthcheck
+RUN apk add --no-cache curl
+
 # Copy package files
 COPY package*.json ./
 

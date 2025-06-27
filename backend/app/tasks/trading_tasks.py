@@ -568,13 +568,13 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                         entry_price = float(order_result.price) if order_result.price else current_price
                         
                         position = Position(
-                            user_id=bot.user_id,
-                            bot_id=bot.id,
-                            exchange_connection_id=bot.exchange_connection_id,
-                            symbol=symbol,
+                user_id=bot.user_id,
+                bot_id=bot.id,
+                exchange_connection_id=bot.exchange_connection_id,
+                symbol=symbol,
                             trade_type="spot",  # Assuming spot trading for bots
-                            side=order_side.value,
-                            quantity=amount_to_trade,
+                side=order_side.value,
+                quantity=amount_to_trade,
                             entry_price=entry_price,
                             current_price=entry_price,
                             leverage=1,  # Spot trading has leverage of 1
@@ -584,12 +584,12 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                             total_pnl=0.0,
                             is_open=True,
                             opened_at=datetime.utcnow()
-                        )
-                        
+            )
+            
                         db.add(position)
-                        db.commit()
+            db.commit()
                         logger.info(f"Position record created for bot trade: {position.id} with order ID {order_result.id}")
-                        
+
                         # Verify position was created successfully
                         created_position = db.query(Position).filter(
                             Position.id == position.id
@@ -610,8 +610,8 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                     activity = ActivityCreate(
                         type="BOT_TRADE",
                         description=f"Bot '{bot.name}' successfully executed {order_side.value} of {amount_to_trade:.4f} {symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id}, order id: {order_result.id})",
-                        amount=amount_to_trade
-                    )
+                amount=amount_to_trade
+            )
                     activity_service.log_activity(db, user, activity)
                     logger.info(f"Activity logged for successful bot trade: {pending_trade.id}")
 
@@ -657,7 +657,7 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                 type="error",
                 description=f"Bot '{bot.name}' failed to execute {signal.value} trade for {symbol}: {e}",
                 amount=None
-            )
+        )
             activity_service.log_activity(db, user, activity)
 
 def _execute_strategy(bot: Bot, market_data: pd.DataFrame, current_price: float, stop_loss_manager: StopLossManager) -> Dict[str, Any]:
@@ -745,7 +745,7 @@ def _log_activity(db: Session, bot: Bot, activity_type: str, details: Dict[str, 
         db.commit()
     except Exception as e:
         logger.error(f"Error logging activity for bot {bot.id}: {e}")
-        db.rollback()
+        db.rollback() 
 
 def log_stoploss_adjustment(db, bot, symbol, new_stoploss):
     user = db.query(User).filter(User.id == bot.user_id).first()

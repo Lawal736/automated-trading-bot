@@ -7,6 +7,7 @@ class UserBase(BaseModel):
     username: str
     is_active: bool = True
     is_superuser: bool = False
+    role: str
 
 # Properties to receive on user creation
 class UserCreate(UserBase):

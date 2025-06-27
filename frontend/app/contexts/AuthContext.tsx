@@ -122,12 +122,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       });
 
       console.log('AuthContext: Login response received:', response.data);
-      const { access_token, user_id, email: userEmail, username } = response.data;
+      const { access_token } = response.data;
       localStorage.setItem('access_token', access_token);
-      localStorage.setItem('user', JSON.stringify({ user_id, email: userEmail, username }));
       axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
 
-      // Fetch user details
+      // Always fetch user details from /auth/me after login
       console.log('AuthContext: Fetching user details');
       const userResponse = await axios.get('/auth/me');
       console.log('AuthContext: User details received:', userResponse.data);
