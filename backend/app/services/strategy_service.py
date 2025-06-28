@@ -37,7 +37,8 @@ class StrategyService:
             from app.trading.data_service import data_service
             
             # Fetch recent market data for signal generation
-            market_data = data_service.get_market_data_for_strategy(symbol, '4h', lookback_periods=100)
+            # Use '1d' timeframe for Cassava strategy (daily candles)
+            market_data = data_service.get_market_data_for_strategy(symbol, '1d', lookback_periods=100)
             
             if market_data.empty or len(market_data) < 50:
                 logger.warning(f"Insufficient market data for {symbol}")

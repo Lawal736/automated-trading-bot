@@ -274,9 +274,9 @@ def run_trading_bot_strategy(self, bot_id: int):
                     
                     # --- Only check signals when a new bar is available (Cassava strategy) ---
                     if bot.strategy_name == 'cassava_trend_following':
-                        # Determine timeframe from strategy_params or default to '4h'
+                        # Determine timeframe from strategy_params or default to '1d' for Cassava
                         strategy_params = getattr(bot, 'strategy_params', {}) or {}
-                        timeframe = strategy_params.get('timeframe', '4h')
+                        timeframe = strategy_params.get('timeframe', '1d')
                         market_data = data_service.get_market_data_for_strategy(symbol, timeframe, lookback_periods=100)
                         if market_data.empty:
                             continue
@@ -314,7 +314,7 @@ def run_trading_bot_strategy(self, bot_id: int):
                     # For Cassava strategy, use its internal stoploss logic instead of generic bot stoploss
                     if bot.strategy_name == 'cassava_trend_following':
                         # Fetch market data for Cassava strategy stoploss calculation
-                        market_data = data_service.get_market_data_for_strategy(symbol, '4h', lookback_periods=100)
+                        market_data = data_service.get_market_data_for_strategy(symbol, '1d', lookback_periods=100)
                         
                         # Calculate indicators for Cassava strategy
                         strategy_service._calculate_indicators(market_data)
@@ -409,7 +409,15 @@ def run_trading_bot_strategy(self, bot_id: int):
                 )
                 activity_service.log_activity(db, user, activity)
 
-            time.sleep(bot.trade_interval_seconds)
+            # Use appropriate sleep interval based on strategy timeframe
+            if bot.strategy_name == 'cassava_trend_following':
+                # For daily timeframe, check every 4 hours (14400 seconds)
+                sleep_interval = 14400
+            else:
+                # Use bot's configured interval for other strategies
+                sleep_interval = bot.trade_interval_seconds
+                
+            time.sleep(sleep_interval)
 
     except Exception as e:
         logger.error(f"Fatal error in trading task for bot {bot_id}: {e}", exc_info=True)
