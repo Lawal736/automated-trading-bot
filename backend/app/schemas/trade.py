@@ -9,6 +9,7 @@ class TradeOrder(BaseModel):
     amount: float = Field(..., description="The amount to trade")
     price: Optional[float] = Field(None, description="The price for limit orders")
     stop_loss: Optional[float] = Field(None, description="Stop loss price for the order")
+    enable_ema25_trailing: Optional[bool] = Field(False, description="Enable EMA25 trailing stop loss management after initial stop loss is set")
 
 class TradeResult(BaseModel):
     id: str

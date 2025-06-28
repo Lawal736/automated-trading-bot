@@ -24,6 +24,7 @@ const navigation = [
   { name: 'Trading Bots', href: '/dashboard/create-bot', icon: RectangleStackIcon },
   { name: 'Exchanges', href: '/dashboard/exchanges', icon: BriefcaseIcon },
   { name: 'Manual Trade', href: '/dashboard/manual-trade', icon: CogIcon },
+  { name: 'Stop Loss Status', href: '/dashboard/manual-stop-loss-status', icon: ShieldCheckIcon },
   { name: 'Reports', href: '/dashboard/reports', icon: ChartBarIcon },
 ];
 

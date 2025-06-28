@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   ArrowLeftIcon, 
-  BoltIcon
+  BoltIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 import { logActivity, ActivityCreate } from '../../../lib/activities';
 import { getTickerPrice, executeTrade, TradeOrder, getTopTradingPairs } from '../../../lib/exchanges';
@@ -20,6 +21,7 @@ interface TradeForm {
   price?: number;
   stopLoss?: number;
   total: number;
+  enableEma25Trailing?: boolean;
 }
 
 export default function ManualTradePage() {
@@ -34,7 +36,8 @@ export default function ManualTradePage() {
     amount: 0,
     price: undefined,
     stopLoss: undefined,
-    total: 0
+    total: 0,
+    enableEma25Trailing: false,
   });
   const [isLoading, setIsLoading] = useState(false);
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
@@ -140,6 +143,7 @@ export default function ManualTradePage() {
       amount: tradeForm.amount,
       price: tradeForm.orderType === 'limit' ? tradeForm.price : undefined,
       stop_loss: tradeForm.stopLoss !== undefined && !isNaN(tradeForm.stopLoss) ? tradeForm.stopLoss : undefined,
+      enable_ema25_trailing: tradeForm.enableEma25Trailing,
     };
 
     try {
@@ -178,12 +182,21 @@ export default function ManualTradePage() {
             <ArrowLeftIcon className="h-5 w-5 mr-2" />
             Back
           </button>
-          <h1 className="text-3xl font-bold flex items-center">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mr-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-            </svg>
-            Manual Trade
-          </h1>
+          <div className="flex justify-between items-center">
+            <h1 className="text-3xl font-bold flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mr-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+              </svg>
+              Manual Trade
+            </h1>
+            <button
+              onClick={() => router.push('/dashboard/manual-stop-loss-status')}
+              className="flex items-center px-4 py-2 bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+            >
+              <ShieldCheckIcon className="h-4 w-4 mr-2" />
+              View Stop Loss Status
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -348,6 +361,18 @@ export default function ManualTradePage() {
                     className="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 focus:ring-2 focus:ring-red-500"
                     placeholder="Optional"
                   />
+                  <div className="flex items-center mt-2">
+                    <input
+                      type="checkbox"
+                      id="enableEma25Trailing"
+                      checked={tradeForm.enableEma25Trailing}
+                      onChange={e => setTradeForm(prev => ({ ...prev, enableEma25Trailing: e.target.checked }))}
+                      className="mr-2 h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor="enableEma25Trailing" className="text-sm text-gray-300 cursor-pointer">
+                      Enable EMA25 trailing stop loss management
+                    </label>
+                  </div>
                 </div>
 
               </div>

@@ -343,6 +343,28 @@ class ExchangeService:
                     activity_service.log_activity(self.session, user, activity_data)
                     logger.info(f"Activity logged for successful manual trade: {pending_trade.id}")
 
+                # Set up EMA25 trailing stop loss management if enabled
+                if trade_order.enable_ema25_trailing and trade_order.stop_loss:
+                    try:
+                        from app.tasks.manual_stop_loss_tasks import setup_manual_ema25_trailing
+                        
+                        # Schedule the EMA25 trailing setup task
+                        setup_task = setup_manual_ema25_trailing.delay(pending_trade.id, user_id)
+                        logger.info(f"EMA25 trailing setup scheduled for manual trade {pending_trade.id}, task ID: {setup_task.id}")
+                        
+                        # Log the EMA25 trailing setup
+                        if user:
+                            activity_data = ActivityCreate(
+                                type="MANUAL_EMA25_SETUP_SCHEDULED",
+                                description=f"EMA25 trailing stop loss management scheduled for manual trade {pending_trade.id} on {trade_order.symbol}",
+                                amount=trade_order.stop_loss
+                            )
+                            activity_service.log_activity(self.session, user, activity_data)
+                            
+                    except Exception as ema25_error:
+                        logger.error(f"Failed to schedule EMA25 trailing setup for trade {pending_trade.id}: {ema25_error}")
+                        # Don't fail the trade if EMA25 setup fails
+
             except Exception as update_error:
                 logger.error(f"Failed to update trade record in database: {update_error}")
                 # Don't fail the entire operation if database update fails

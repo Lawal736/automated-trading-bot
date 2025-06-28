@@ -9,7 +9,8 @@ celery_app = Celery(
     include=[
         "app.tasks.example_tasks",
         "app.tasks.trading_tasks",
-        "app.tasks.cassava_data_tasks"
+        "app.tasks.cassava_data_tasks",
+        "app.tasks.manual_stop_loss_tasks"
     ],
     beat_scheduler='redbeat.RedBeatScheduler'
 )
@@ -32,16 +33,31 @@ celery_app.conf.update(
     redis_socket_connect_timeout=30,
     redis_socket_timeout=30,
     redis_max_connections=20,
-)
-
-# Beat schedule for periodic tasks
-celery_app.conf.beat_schedule = {
-    'daily-cassava-data-update': {
-        'task': 'tasks.update_cassava_trend_data',
-        'schedule': crontab(hour=1, minute=0),  # Run at 1:00 AM UTC daily
-    },
-    'daily-cassava-data-cleanup': {
-        'task': 'tasks.cleanup_old_cassava_data',
-        'schedule': crontab(hour=2, minute=0),  # Run at 2:00 AM UTC daily (after update)
-    },
-} 
+    beat_schedule={
+        # Daily Cassava data update at 00:05 UTC
+        'update-cassava-data-daily': {
+            'task': 'app.tasks.cassava_data_tasks.update_cassava_data_daily',
+            'schedule': crontab(hour=0, minute=5),
+        },
+        # Daily Cassava data cleanup at 00:10 UTC
+        'cleanup-old-cassava-data': {
+            'task': 'app.tasks.cassava_data_tasks.cleanup_old_cassava_data',
+            'schedule': crontab(hour=0, minute=10),
+        },
+        # Daily manual stop loss update at 00:15 UTC
+        'update-manual-stop-losses': {
+            'task': 'tasks.update_manual_stop_losses',
+            'schedule': crontab(hour=0, minute=15),
+        },
+        # Position sync every 4 hours
+        'sync-open-positions': {
+            'task': 'tasks.sync_open_positions',
+            'schedule': crontab(minute=0, hour='*/4'),
+        },
+        # Stop loss sweep every hour
+        'sweep-failed-stop-losses': {
+            'task': 'tasks.sweep_and_close_failed_stop_loss_trades',
+            'schedule': crontab(minute=0),
+        },
+    }
+) 
