@@ -635,34 +635,34 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                         # Set initial stop loss for Cassava strategy BUY trades
                         if bot.strategy_name == 'cassava_trend_following' and signal == Signal.BUY:
                             try:
-                                # Get current EMA25 value for initial stop loss
+                                # Get D-1 EMA25 value for initial stop loss (consistency with D-1 signal generation)
                                 from app.trading.data_service import data_service
                                 market_data = data_service.get_market_data_for_strategy(symbol, '1d', lookback_periods=100)
                                 
-                                if not market_data.empty:
+                                if not market_data.empty and len(market_data) >= 2:
                                     # Calculate indicators
                                     strategy_service._calculate_indicators(market_data)
                                     
-                                    # Get EMA25 value from the latest data
+                                    # Get D-1 EMA25 value (second to last row for D-1 data)
                                     ema_exit_period = strategy_service.params.get('ema_exit', 25)
                                     ema_exit_col = f"EMA_{ema_exit_period}"
                                     
                                     if ema_exit_col in market_data.columns:
-                                        current_ema25 = market_data[ema_exit_col].iloc[-1]
-                                        if not pd.isna(current_ema25):
-                                            # Set initial stop loss at EMA25
-                                            bot._last_stoploss_levels[symbol] = current_ema25
-                                            logger.info(f"Cassava strategy: Initial stop loss set for {symbol} at EMA25: {current_ema25}")
+                                        d1_ema25 = market_data[ema_exit_col].iloc[-2]  # D-1 EMA25
+                                        if not pd.isna(d1_ema25):
+                                            # Set initial stop loss at D-1 EMA25
+                                            bot._last_stoploss_levels[symbol] = d1_ema25
+                                            logger.info(f"Cassava strategy: Initial stop loss set for {symbol} at D-1 EMA25: {d1_ema25}")
                                             
                                             # Log the stop loss setting
-                                            log_stoploss_adjustment(db, bot, symbol, current_ema25)
+                                            log_stoploss_adjustment(db, bot, symbol, d1_ema25)
                                             
                                             # Log activity for stop loss setting
                                             if user:
                                                 activity = ActivityCreate(
                                                     type="STOP_LOSS_SET",
-                                                    description=f"Bot '{bot.name}' set initial EMA25 stop loss for {symbol} at {current_ema25}",
-                                                    amount=current_ema25
+                                                    description=f"Bot '{bot.name}' set initial D-1 EMA25 stop loss for {symbol} at {d1_ema25}",
+                                                    amount=d1_ema25
                                                 )
                                                 activity_service.log_activity(db, user, activity)
                             except Exception as sl_error:

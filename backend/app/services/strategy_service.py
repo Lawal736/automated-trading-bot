@@ -133,9 +133,9 @@ class StrategyService:
             logger.info(f"[{date}] Cassava Trend Following LONG entry.")
             self.crossover_state = {'type': None, 'bar_index': -1}
             # --- EMA25-based stop loss for long entry ---
-            # On entry, set stop loss at EMA25 (daily candle close)
-            stop_loss_price = latest[ema_exit]  # EMA25
-            logger.info(f"[{date}] LONG ENTRY: Stop loss set at EMA25: {stop_loss_price}")
+            # On entry, set stop loss at D-1 EMA25 (daily candle close) for consistency with D-1 signal generation
+            stop_loss_price = previous[ema_exit]  # D-1 EMA25
+            logger.info(f"[{date}] LONG ENTRY: Stop loss set at D-1 EMA25: {stop_loss_price}")
         else:
             # --- Pink Candle Short Entry Logic ---
             pink_candle_idx = None
