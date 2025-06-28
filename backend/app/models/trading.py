@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, ForeignKey, CheckConstraint
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, ForeignKey, CheckConstraint, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import enum
@@ -208,4 +208,39 @@ class BacktestResult(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships
-    strategy = relationship("Strategy", back_populates="backtest_results") 
+    strategy = relationship("Strategy", back_populates="backtest_results")
+
+
+class CassavaTrendData(Base):
+    """Daily Cassava strategy trend data for all trading pairs"""
+    
+    __tablename__ = "cassava_trend_data"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(DateTime(timezone=True), nullable=False, index=True)  # Daily UTC+0
+    symbol = Column(String(20), nullable=False, index=True)  # Trading pair
+    
+    # Technical Indicators
+    ema_10 = Column(Float, nullable=False)
+    ema_8 = Column(Float, nullable=False)
+    ema_20 = Column(Float, nullable=False)
+    ema_15 = Column(Float, nullable=False)
+    ema_25 = Column(Float, nullable=False)
+    ema_5 = Column(Float, nullable=False)
+    di_plus = Column(Float, nullable=False)
+    top_fractal = Column(Float, nullable=True)
+    price = Column(Float, nullable=True)
+    
+    # Trading Condition
+    trading_condition = Column(String(10), nullable=False)  # BUY, SHORT, HOLD
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Check constraints
+    __table_args__ = (
+        CheckConstraint(trading_condition.in_(['BUY', 'SHORT', 'HOLD']), name='valid_trading_condition'),
+        # Unique constraint for date + symbol combination
+        UniqueConstraint('date', 'symbol', name='unique_date_symbol'),
+    ) 

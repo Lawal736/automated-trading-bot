@@ -11,6 +11,7 @@ import {
   XMarkIcon,
   BriefcaseIcon,
   ShieldCheckIcon,
+  TableCellsIcon,
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -34,7 +35,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
+
+  // Debug print for admin status
+  console.log('isAdmin:', isAdmin, 'user:', user);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
@@ -114,21 +118,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         </Link>
                       ))}
                       {isAdmin && (
-                        <Link
-                          href="/dashboard/admin"
-                          className={classNames(
-                            pathname === '/dashboard/admin'
-                              ? 'bg-gray-800 text-white'
-                              : 'text-gray-400 hover:bg-gray-800 hover:text-white',
-                            'group flex items-center px-2 py-2 text-base font-medium rounded-md'
-                          )}
-                        >
-                          <ShieldCheckIcon
-                            className="mr-4 h-6 w-6 flex-shrink-0 text-gray-500"
-                            aria-hidden="true"
-                          />
-                          Admin
-                        </Link>
+                        <>
+                          <Link
+                            href="/dashboard/admin"
+                            className={classNames(
+                              pathname === '/dashboard/admin'
+                                ? 'bg-gray-800 text-white'
+                                : 'text-gray-400 hover:bg-gray-800 hover:text-white',
+                              'group flex items-center px-2 py-2 text-base font-medium rounded-md'
+                            )}
+                          >
+                            <ShieldCheckIcon
+                              className="mr-4 h-6 w-6 flex-shrink-0 text-gray-500"
+                              aria-hidden="true"
+                            />
+                            Admin
+                          </Link>
+                          <Link
+                            href="/dashboard/admin/cassava-data"
+                            className={classNames(
+                              pathname === '/dashboard/admin/cassava-data'
+                                ? 'bg-gray-800 text-white'
+                                : 'text-gray-400 hover:bg-gray-800 hover:text-white',
+                              'group flex items-center pl-12 py-2 text-base font-medium rounded-md'
+                            )}
+                          >
+                            <TableCellsIcon className="mr-4 h-5 w-5 flex-shrink-0 text-indigo-400" aria-hidden="true" />
+                            Cassava BOT Data
+                          </Link>
+                        </>
                       )}
                     </nav>
                   </div>
@@ -164,16 +182,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             </Link>
                         ))}
                         {isAdmin && (
+                          <>
                             <Link
-                                href="/dashboard/admin"
-                                className={classNames(
-                                    pathname === '/dashboard/admin' ? 'bg-gray-800 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white',
-                                    'group flex items-center px-2 py-2 text-sm font-medium rounded-md'
-                                )}
+                              href="/dashboard/admin"
+                              className={classNames(
+                                pathname === '/dashboard/admin'
+                                  ? 'bg-gray-800 text-white'
+                                  : 'text-gray-400 hover:bg-gray-800 hover:text-white',
+                                'group flex items-center px-2 py-2 text-sm font-medium rounded-md'
+                              )}
                             >
-                                <ShieldCheckIcon className="mr-3 h-6 w-6 flex-shrink-0 text-gray-500" />
-                                Admin
+                              <ShieldCheckIcon className="mr-3 h-6 w-6 flex-shrink-0 text-gray-500" />
+                              Admin
                             </Link>
+                            <Link
+                              href="/dashboard/admin/cassava-data"
+                              className={classNames(
+                                pathname === '/dashboard/admin/cassava-data'
+                                  ? 'bg-gray-800 text-white'
+                                  : 'text-gray-400 hover:bg-gray-800 hover:text-white',
+                                'group flex items-center pl-10 py-2 text-sm font-medium rounded-md'
+                              )}
+                            >
+                              <TableCellsIcon className="mr-3 h-5 w-5 flex-shrink-0 text-indigo-400" />
+                              Cassava BOT Data
+                            </Link>
+                          </>
                         )}
                     </nav>
                 </div>

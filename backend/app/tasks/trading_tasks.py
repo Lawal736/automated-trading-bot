@@ -893,6 +893,9 @@ def setup_stop_loss_sweep(sender, **kwargs):
     sender.add_periodic_task(3600, sweep_and_close_failed_stop_loss_trades.s(), name='Sweep and close failed stop loss trades every hour')
     # Add periodic task to create missing stop losses (every 5 minutes)
     sender.add_periodic_task(300, create_missing_stop_losses.s(), name='Create missing stop losses every 5 minutes')
+    # Add daily task to update Cassava trend data (once daily at 00:05 UTC)
+    from app.tasks.cassava_data_tasks import update_cassava_trend_data
+    sender.add_periodic_task(86400, update_cassava_trend_data.s(), name='Update Cassava trend data daily')
 
 @celery_app.task(name="tasks.sweep_and_close_failed_stop_loss_trades")
 def sweep_and_close_failed_stop_loss_trades():

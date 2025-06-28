@@ -1,5 +1,6 @@
 from celery import Celery
 from app.core.config import settings
+from celery.schedules import crontab
 
 celery_app = Celery(
     "tasks",
@@ -7,7 +8,8 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "app.tasks.example_tasks",
-        "app.tasks.trading_tasks"
+        "app.tasks.trading_tasks",
+        "app.tasks.cassava_data_tasks"
     ],
     beat_scheduler='redbeat.RedBeatScheduler'
 )
@@ -30,4 +32,16 @@ celery_app.conf.update(
     redis_socket_connect_timeout=30,
     redis_socket_timeout=30,
     redis_max_connections=20,
-) 
+)
+
+# Beat schedule for periodic tasks
+celery_app.conf.beat_schedule = {
+    'daily-cassava-data-update': {
+        'task': 'tasks.update_cassava_trend_data',
+        'schedule': crontab(hour=1, minute=0),  # Run at 1:00 AM UTC daily
+    },
+    'daily-cassava-data-cleanup': {
+        'task': 'tasks.cleanup_old_cassava_data',
+        'schedule': crontab(hour=2, minute=0),  # Run at 2:00 AM UTC daily (after update)
+    },
+} 

@@ -131,7 +131,7 @@ class BinanceDataService:
             logger.error(f"Error fetching 24hr ticker for {symbol}: {e}")
             return None
     
-    def get_market_data_for_strategy(self, symbol: str, timeframe: str, lookback_periods: int = 100) -> pd.DataFrame:
+    def get_market_data_for_strategy(self, symbol: str, timeframe: str, lookback_periods: int = 100, end_time: Optional[int] = None) -> pd.DataFrame:
         """
         Get market data optimized for strategy execution
         
@@ -139,7 +139,8 @@ class BinanceDataService:
             symbol: Trading pair
             timeframe: Time interval
             lookback_periods: Number of periods to look back
-            
+            end_time: End time in milliseconds (optional)
+        
         Returns:
             DataFrame with OHLCV data and technical indicators
         """
@@ -148,7 +149,7 @@ class BinanceDataService:
             extra_periods = max(50, lookback_periods // 2)
             total_periods = lookback_periods + extra_periods
             
-            df = self.get_klines(symbol, timeframe, limit=total_periods)
+            df = self.get_klines(symbol, timeframe, limit=total_periods, end_time=end_time)
             
             if df.empty:
                 return df
