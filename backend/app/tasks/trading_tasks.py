@@ -1,30 +1,39 @@
+import asyncio
+import time
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
+from decimal import Decimal
+import pandas as pd
+
+from celery import current_task
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
+
+from app.core.database import SessionLocal
 from app.core.celery import celery_app
+from app.models.bot import Bot
+from app.models.trading import Trade, Position, OrderStatus
+from app.models.user import User
+from app.models.exchange import ExchangeConnection
+from app.services.activity_service import ActivityService, ActivityCreate
+from app.services.strategy_service import StrategyService
+from app.services.bot_service import BotService
+from app.trading.stop_loss import StopLossManager, StopLossConfig, StopLossType
 from app.core.logging import get_logger
 from app.core.database import get_db
-from app.models.bot import Bot
-from app.models.activity import Activity
-from app.trading.stop_loss import StopLossManager, StopLossConfig, StopLossType
 from app.trading.data_service import data_service
 from app.services import activity_service, bot_service
 from sqlalchemy.orm import Session
-import time
-from datetime import datetime, timedelta
 from typing import Dict, Any
-import pandas as pd
 from app.models.strategy import Strategy
 from app.services.exchange_service import ExchangeService
-from app.services.strategy_service import StrategyService, Signal
+from app.services.strategy_service import Signal
 from app.services.activity_service import activity_service
-from decimal import Decimal
 from app.models.trading import Trade, OrderStatus, Position
-from app.core.database import SessionLocal
 from app.core.config import settings
-from app.models.exchange import ExchangeConnection
 from app.trading.trading_service import trading_service
 from app.schemas.activity import ActivityCreate
-from app.models.user import User
-from sqlalchemy import and_
-import asyncio
 from app.trading.exchanges.factory import ExchangeFactory
 from app.trading.exchanges.base import OrderType
 
@@ -321,14 +330,30 @@ def run_trading_bot_strategy(self, bot_id: int):
                         
                         # Get the latest signal with stoploss info from Cassava strategy
                         latest_signal = strategy_service._check_signal(market_data, len(market_data) - 1)
-                        new_stoploss = latest_signal.get('stop_loss_price')
+                        current_ema25 = latest_signal.get('current_ema25')
                         
-                        if new_stoploss is not None:
-                            last_stoploss = bot._last_stoploss_levels.get(symbol)
-                            if new_stoploss != last_stoploss:
-                                log_stoploss_adjustment(db, bot, symbol, new_stoploss)
-                                bot._last_stoploss_levels[symbol] = new_stoploss
-                                logger.info(f"Cassava strategy stoploss for {symbol}: {new_stoploss}")
+                        # Get current stop loss for this symbol
+                        current_stoploss = bot._last_stoploss_levels.get(symbol)
+                        
+                        # Implement EMA25 trailing stop loss logic for long positions
+                        if current_ema25 is not None:
+                            # Check if we have an existing stop loss (meaning we're in a long position)
+                            if current_stoploss is not None:
+                                # We're in a long position - implement trailing stop loss logic
+                                # Only update if new EMA25 is higher than current stop loss (trailing up only)
+                                if current_ema25 > current_stoploss:
+                                    # New EMA25 is higher - update stop loss
+                                    new_stoploss = current_ema25
+                                    log_stoploss_adjustment(db, bot, symbol, new_stoploss)
+                                    bot._last_stoploss_levels[symbol] = new_stoploss
+                                    logger.info(f"Cassava strategy LONG trailing stop loss for {symbol}: {current_stoploss} -> {new_stoploss} (EMA25: {current_ema25})")
+                                else:
+                                    # New EMA25 is not higher - keep current stop loss
+                                    logger.info(f"Cassava strategy LONG stop loss for {symbol}: keeping current {current_stoploss} (EMA25: {current_ema25} <= current stop loss)")
+                            else:
+                                # No existing stop loss - this might be a new entry signal
+                                # The stop loss will be set when the BUY signal is executed
+                                logger.info(f"Cassava strategy for {symbol}: No current stop loss, EMA25: {current_ema25}")
                     else:
                         # Use generic bot stoploss for other strategies
                         # Fetch market data for stoploss calculation
@@ -606,6 +631,43 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                         
                         if not created_position:
                             raise Exception("Position was not saved to database")
+                        
+                        # Set initial stop loss for Cassava strategy BUY trades
+                        if bot.strategy_name == 'cassava_trend_following' and signal == Signal.BUY:
+                            try:
+                                # Get current EMA25 value for initial stop loss
+                                from app.trading.data_service import data_service
+                                market_data = data_service.get_market_data_for_strategy(symbol, '1d', lookback_periods=100)
+                                
+                                if not market_data.empty:
+                                    # Calculate indicators
+                                    strategy_service._calculate_indicators(market_data)
+                                    
+                                    # Get EMA25 value from the latest data
+                                    ema_exit_period = strategy_service.params.get('ema_exit', 25)
+                                    ema_exit_col = f"EMA_{ema_exit_period}"
+                                    
+                                    if ema_exit_col in market_data.columns:
+                                        current_ema25 = market_data[ema_exit_col].iloc[-1]
+                                        if not pd.isna(current_ema25):
+                                            # Set initial stop loss at EMA25
+                                            bot._last_stoploss_levels[symbol] = current_ema25
+                                            logger.info(f"Cassava strategy: Initial stop loss set for {symbol} at EMA25: {current_ema25}")
+                                            
+                                            # Log the stop loss setting
+                                            log_stoploss_adjustment(db, bot, symbol, current_ema25)
+                                            
+                                            # Log activity for stop loss setting
+                                            if user:
+                                                activity = ActivityCreate(
+                                                    type="STOP_LOSS_SET",
+                                                    description=f"Bot '{bot.name}' set initial EMA25 stop loss for {symbol} at {current_ema25}",
+                                                    amount=current_ema25
+                                                )
+                                                activity_service.log_activity(db, user, activity)
+                            except Exception as sl_error:
+                                logger.error(f"Failed to set initial stop loss for Cassava strategy: {sl_error}")
+                                # Don't fail the trade if stop loss setting fails
                         
                 except Exception as pos_error:
                     logger.error(f"Failed to create position record for bot trade: {pos_error}")

@@ -132,9 +132,10 @@ class StrategyService:
             condition_met = True
             logger.info(f"[{date}] Cassava Trend Following LONG entry.")
             self.crossover_state = {'type': None, 'bar_index': -1}
-            # --- EMA25-based stop loss for long ---
+            # --- EMA25-based stop loss for long entry ---
             # On entry, set stop loss at EMA25 (daily candle close)
             stop_loss_price = latest[ema_exit]  # EMA25
+            logger.info(f"[{date}] LONG ENTRY: Stop loss set at EMA25: {stop_loss_price}")
         else:
             # --- Pink Candle Short Entry Logic ---
             pink_candle_idx = None
@@ -183,20 +184,27 @@ class StrategyService:
                 stop_loss_price = latest['fractal_high']
                 logger.info(f"[{date}] SHORT STOP LOSS TRAILED: New fractal high, stop loss moved to {stop_loss_price}.")
 
-        # --- Dynamic stop loss management for long trades ---
+        # --- Dynamic stop loss management for long trades (EMA25 trailing) ---
         # Only applies if currently in a long trade (handled by backtest/live logic)
+        # This is where the EMA25 trailing logic should be implemented
+        # The actual comparison with current stop loss should be done in the trading task
+        # Here we just provide the current EMA25 value for comparison
         if signal == Signal.BUY or (condition_met and signal == Signal.HOLD):
-            # Trail the EMA25 stoploss for long positions
+            # For long positions, provide current EMA25 value for trailing stop loss logic
+            # The actual trailing logic (compare with current stop loss) is handled in trading tasks
             if not pd.isna(latest[ema_exit]):
-                stop_loss_price = latest[ema_exit]
-                logger.info(f"[{date}] LONG STOP LOSS TRAILED: EMA25 stoploss updated to {stop_loss_price}.")
+                # This is the current EMA25 value - should be compared with existing stop loss
+                # Only update if this EMA25 is higher than current stop loss (trailing up only)
+                current_ema25 = latest[ema_exit]
+                logger.info(f"[{date}] LONG POSITION: Current EMA25 value: {current_ema25} (for stop loss comparison)")
 
         return {
             "signal": signal,
             "condition_met": condition_met,
             "exit_long": exit_long,
             "exit_short": exit_short,
-            "stop_loss_price": stop_loss_price
+            "stop_loss_price": stop_loss_price,
+            "current_ema25": latest[ema_exit] if not pd.isna(latest[ema_exit]) else None
         }
 
     def pine_script_dmi(self, df, length=14, pine_rma=True):
