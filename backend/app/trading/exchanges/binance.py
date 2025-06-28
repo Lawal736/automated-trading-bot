@@ -226,9 +226,15 @@ class BinanceExchange(BaseExchange):
         client = self._get_client_for_symbol(symbol)
         try:
             order_params = params or {}
+            
+            # Map order type for Binance compatibility
+            binance_order_type = order_type if isinstance(order_type, str) else order_type.value
+            if binance_order_type == "stop_limit":
+                binance_order_type = "STOP_LOSS_LIMIT"
+            
             result = await client.create_order(
                 symbol=symbol,
-                type=order_type if isinstance(order_type, str) else order_type.value,
+                type=binance_order_type,
                 side=side if isinstance(side, str) else side.value,
                 amount=float(amount),
                 price=float(price) if price else None,

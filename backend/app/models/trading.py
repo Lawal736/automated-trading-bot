@@ -61,7 +61,7 @@ class Trade(Base):
     # Check constraints
     __table_args__ = (
         CheckConstraint(trade_type.in_(['spot', 'futures']), name='valid_trade_type'),
-        CheckConstraint(order_type.in_(['market', 'limit', 'stop', 'stop_limit']), name='valid_order_type'),
+        CheckConstraint(order_type.in_(['market', 'limit', 'stop', 'stop_limit', 'stop-limit']), name='valid_order_type'),
         CheckConstraint(side.in_(['buy', 'sell']), name='valid_side'),
         CheckConstraint(status.in_(['pending', 'open', 'filled', 'partially_filled', 'cancelled', 'rejected']), name='valid_status'),
     )
@@ -78,6 +78,9 @@ class Trade(Base):
     stop_loss_failed = Column(Boolean, default=False)
     exchange_info = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
+
+    # New column for stop loss
+    stop_loss = Column(Float, nullable=True)  # User's intended stop loss price
 
 
 class Position(Base):

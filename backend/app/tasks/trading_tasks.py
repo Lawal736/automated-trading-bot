@@ -25,6 +25,8 @@ from app.schemas.activity import ActivityCreate
 from app.models.user import User
 from sqlalchemy import and_
 import asyncio
+from app.trading.exchanges.factory import ExchangeFactory
+from app.trading.exchanges.base import OrderType
 
 logger = get_logger(__name__)
 
@@ -760,11 +762,14 @@ def retry_stop_loss_order(trade_id: int):
     db: Session = SessionLocal()
     try:
         trade = db.query(Trade).filter(Trade.id == trade_id).first()
-        if not trade or trade.status not in [OrderStatus.OPEN.value, OrderStatus.PENDING.value]:
+        if not trade:
             return
         if trade.stop_loss_failed:
             return
         if trade.trade_type != "STOP_LOSS":
+            return
+        # Allow retry for rejected, open, or pending stop losses
+        if trade.status not in [OrderStatus.OPEN.value, OrderStatus.PENDING.value, OrderStatus.REJECTED.value]:
             return
         max_retries = 5
         now = datetime.utcnow()
@@ -781,14 +786,53 @@ def retry_stop_loss_order(trade_id: int):
             exchange_service = ExchangeService(db)
             exchange = asyncio.run(exchange_service.get_exchange_client_for_user(trade.user_id, conn.exchange_name))
             stop_side = "sell" if trade.side == "buy" else "buy"
-            stop_loss_order = asyncio.run(exchange.create_order(
-                symbol=trade.symbol,
-                order_type="stop-limit",
-                side=stop_side,
-                amount=trade.quantity,
-                price=trade.price,
-                params={"stopPrice": trade.price}
-            ))
+            
+            # Find the original trade to get the user's intended stop loss price
+            original_trade = db.query(Trade).filter(
+                and_(
+                    Trade.symbol == trade.symbol,
+                    Trade.user_id == trade.user_id,
+                    Trade.side == "buy",  # Original trade was a buy
+                    Trade.trade_type.in_(["spot", "futures"]),
+                    Trade.status == "filled",
+                    Trade.created_at < trade.created_at  # Original trade was created before this stop loss
+                )
+            ).order_by(Trade.created_at.desc()).first()
+            
+            if not original_trade:
+                logger.error(f"Original trade not found for stop loss trade {trade.id}")
+                return
+                
+            # Use the user's stored stop loss price from the original trade
+            stop_loss_price = original_trade.stop_loss if original_trade.stop_loss else trade.price
+            logger.info(f"Using stop loss price: {stop_loss_price} from original trade {original_trade.id}")
+            
+            # Place stop loss order on exchange
+            try:
+                from app.trading.exchanges.base import OrderType
+                stop_loss_order = asyncio.run(exchange.create_order(
+                    symbol=trade.symbol,
+                    order_type=OrderType.STOP_LIMIT,
+                    side=stop_side,
+                    amount=trade.quantity,
+                    price=stop_loss_price,
+                    params={"stopPrice": stop_loss_price, "timeInForce": "GTC"}
+                ))
+                logger.info(f"Stop loss order created with type: {OrderType.STOP_LIMIT.value}")
+            except Exception as e:
+                last_error = e
+                logger.error(f"Failed to create stop loss for trade {trade.id}: {e}")
+                retry_count += 1
+                trade.stop_loss_retry_count = retry_count
+                trade.stop_loss_last_attempt = now
+                db.commit()
+                if retry_count < max_retries:
+                    retry_stop_loss_order.apply_async((trade_id,), eta=now + next_interval)
+                else:
+                    trade.stop_loss_failed = True
+                    db.commit()
+                return
+            
             trade.stop_loss_retry_count = 0
             trade.stop_loss_last_attempt = now
             trade.status = OrderStatus.OPEN.value
@@ -847,6 +891,8 @@ def retry_stop_loss_order(trade_id: int):
 def setup_stop_loss_sweep(sender, **kwargs):
     # Add hourly sweep for failed stop loss trades
     sender.add_periodic_task(3600, sweep_and_close_failed_stop_loss_trades.s(), name='Sweep and close failed stop loss trades every hour')
+    # Add periodic task to create missing stop losses (every 5 minutes)
+    sender.add_periodic_task(300, create_missing_stop_losses.s(), name='Create missing stop losses every 5 minutes')
 
 @celery_app.task(name="tasks.sweep_and_close_failed_stop_loss_trades")
 def sweep_and_close_failed_stop_loss_trades():
@@ -887,5 +933,161 @@ def sweep_and_close_failed_stop_loss_trades():
                 logger.error(f"Hourly sweep: Failed to close trade {trade.id}: {e}")
     except Exception as outer_e:
         logger.error(f"Error in sweep_and_close_failed_stop_loss_trades: {outer_e}")
+    finally:
+        db.close()
+
+@celery_app.task(name="tasks.create_missing_stop_losses")
+def create_missing_stop_losses():
+    """Create stop loss orders for filled trades that don't have them"""
+    import logging
+    db: Session = SessionLocal()
+    try:
+        # Find filled buy trades from the last 24 hours that don't have corresponding stop losses
+        yesterday = datetime.utcnow() - timedelta(days=1)
+        filled_buy_trades = db.query(Trade).filter(
+            and_(
+                Trade.side == "buy",
+                Trade.status == "filled",
+                Trade.trade_type.in_(["spot", "futures"]),
+                Trade.created_at > yesterday
+            )
+        ).all()
+        
+        logger.info(f"Found {len(filled_buy_trades)} filled buy trades to check for stop losses")
+        
+        for trade in filled_buy_trades:
+            # Check if this trade already has a stop loss
+            existing_stop_loss = db.query(Trade).filter(
+                and_(
+                    Trade.trade_type == "STOP_LOSS",
+                    Trade.symbol == trade.symbol,
+                    Trade.user_id == trade.user_id,
+                    Trade.created_at > trade.created_at
+                )
+            ).first()
+            
+            if existing_stop_loss:
+                logger.info(f"Trade {trade.id} already has stop loss {existing_stop_loss.id}")
+                continue
+                
+            # Create stop loss order
+            try:
+                conn = db.query(ExchangeConnection).filter(ExchangeConnection.id == trade.exchange_connection_id).first()
+                if not conn:
+                    logger.error(f"Exchange connection {trade.exchange_connection_id} not found for trade {trade.id}")
+                    continue
+                    
+                # Create exchange instance directly like the manual script
+                exchange = ExchangeFactory.create_exchange(
+                    exchange_name=conn.exchange_name,
+                    api_key=conn.api_key,
+                    api_secret=conn.api_secret,
+                    is_testnet=conn.is_testnet
+                )
+                import asyncio
+                try:
+                    # Load markets and get precision/limits
+                    asyncio.run(exchange.client.load_markets())
+                    market = exchange.client.market(trade.symbol)
+                    price_precision = market['precision']['price']
+                    amount_precision = market['precision']['amount']
+                    # Use the stop loss price from the user or calculated, and round to precision
+                    raw_stop_loss_price = getattr(trade, 'stop_loss', None) or trade.executed_price * 0.98
+                    stop_price = round(float(raw_stop_loss_price), price_precision)
+                    rounded_quantity = round(float(trade.quantity), amount_precision)
+                    # Calculate limit price with buffer from the rounded stop price
+                    limit_price = round(stop_price * 0.999, price_precision)
+                    order_params = {"stopPrice": stop_price, "timeInForce": "GTC"}
+                    order_type_variants = ["stop_loss_limit", "stop-limit", "STOP_LOSS_LIMIT"]
+                    stop_loss_order = None
+                    last_error = None
+                    stop_side = "sell"  # For buy trades, stop loss is always sell
+                    
+                    # Add timeout to prevent hanging
+                    import signal
+                    def timeout_handler(signum, frame):
+                        raise TimeoutError("Order placement timed out")
+                    
+                    for order_type in order_type_variants:
+                        try:
+                            logger.info(f"Trying order_type: {order_type}")
+                            # Set a 30-second timeout for each order attempt
+                            signal.signal(signal.SIGALRM, timeout_handler)
+                            signal.alarm(30)
+                            
+                            stop_loss_order = asyncio.run(exchange.client.create_order(
+                                symbol=trade.symbol,
+                                type=order_type,
+                                side=stop_side,
+                                amount=rounded_quantity,
+                                price=limit_price,
+                                params=order_params
+                            ))
+                            
+                            signal.alarm(0)  # Cancel the alarm
+                            logger.info(f"Stop loss order created: {stop_loss_order}")
+                            break
+                        except TimeoutError:
+                            signal.alarm(0)  # Cancel the alarm
+                            last_error = TimeoutError(f"Order placement timed out for {order_type}")
+                            logger.error(f"Timeout with order_type {order_type}")
+                            continue
+                        except Exception as e:
+                            signal.alarm(0)  # Cancel the alarm
+                            last_error = e
+                            logger.error(f"Failed with order_type {order_type}: {e}")
+                            continue
+                finally:
+                    # Always close the exchange connection
+                    try:
+                        asyncio.run(exchange.close())
+                    except:
+                        pass
+                # Create pending stop loss record
+                pending_stop_loss = Trade(
+                    user_id=trade.user_id,
+                    exchange_connection_id=trade.exchange_connection_id,
+                    symbol=trade.symbol,
+                    trade_type="STOP_LOSS",
+                    order_type="stop_limit",  # Use valid database order type
+                    side=stop_side,
+                    quantity=trade.quantity,
+                    price=stop_price,
+                    status="pending"
+                )
+                db.add(pending_stop_loss)
+                db.commit()
+                if stop_loss_order is None:
+                    logger.error(f"All order type variants failed. Last error: {last_error}")
+                    pending_stop_loss.status = OrderStatus.REJECTED.value
+                    pending_stop_loss.error_message = str(last_error)[:500]
+                    db.commit()
+                    continue
+                # Update stop loss record
+                pending_stop_loss.status = OrderStatus.OPEN.value
+                pending_stop_loss.exchange_order_id = str(stop_loss_order['id'])
+                db.commit()
+                logger.info(f"Created stop loss for trade {trade.id}: stop loss ID {pending_stop_loss.id}")
+                # Log activity
+                user = db.query(User).filter(User.id == trade.user_id).first()
+                if user:
+                    activity_data = ActivityCreate(
+                        type="AUTO_STOP_LOSS_CREATED",
+                        description=f"Auto-created stop loss for {trade.symbol} at {stop_price} (order id: {stop_loss_order['id']})",
+                        amount=trade.quantity
+                    )
+                    activity_service.log_activity(db, user, activity_data)
+                
+            except Exception as e:
+                logger.error(f"Failed to create stop loss for trade {trade.id}: {e}")
+                # Mark stop loss as failed if it exists
+                if 'pending_stop_loss' in locals():
+                    pending_stop_loss.status = OrderStatus.REJECTED.value
+                    pending_stop_loss.error_message = str(e)[:500]
+                    db.commit()
+                continue
+                
+    except Exception as e:
+        logger.error(f"Error in create_missing_stop_losses: {e}")
     finally:
         db.close()

@@ -136,6 +136,7 @@ export default function ManualTradePage() {
       symbol: tradeForm.pair,
       side: tradeForm.side,
       order_type: tradeForm.orderType,
+      trade_type: tradeForm.tradeType,
       amount: tradeForm.amount,
       price: tradeForm.orderType === 'limit' ? tradeForm.price : undefined,
       stop_loss: tradeForm.stopLoss !== undefined && !isNaN(tradeForm.stopLoss) ? tradeForm.stopLoss : undefined,

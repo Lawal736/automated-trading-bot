@@ -154,7 +154,7 @@ class ExchangeService:
                 user_id=user_id,
                 exchange_connection_id=exchange_conn.id,
                 symbol=trade_order.symbol,
-                trade_type="spot",  # Assuming spot trading for manual trades
+                trade_type=trade_order.trade_type,  # Use actual trade type from order
                 order_type=trade_order.order_type,
                 side=trade_order.side,
                 quantity=trade_order.amount,
@@ -162,7 +162,8 @@ class ExchangeService:
                 executed_price=0.0,  # Will be updated after exchange execution
                 status=OrderStatus.PENDING.value,
                 exchange_order_id=None,  # Will be updated after exchange execution
-                executed_at=None  # Will be updated after exchange execution
+                executed_at=None,  # Will be updated after exchange execution
+                stop_loss=trade_order.stop_loss  # Store the user's intended stop loss
             )
             
             self.session.add(pending_trade)
@@ -299,7 +300,7 @@ class ExchangeService:
                                 user_id=user_id,
                                 exchange_connection_id=exchange_conn.id,
                                 symbol=trade_order.symbol,
-                                trade_type="spot",
+                                trade_type=trade_order.trade_type,  # Use actual trade type
                                 side=trade_order.side,
                                 quantity=trade_order.amount,
                                 entry_price=entry_price,
@@ -353,23 +354,12 @@ class ExchangeService:
             if trade_order.stop_loss:
                 logger.info(f"Stop loss value provided: {trade_order.stop_loss}")
                 try:
-                    stop_side = "sell" if trade_order.side == "buy" else "buy"
-                    logger.info(f"Stop loss side: {stop_side}")
+                    # Use the stop loss price directly from the trade order (user's intended stop loss)
+                    stop_loss_value = trade_order.stop_loss
+                    logger.info(f"Using user's stored stop loss: {stop_loss_value}")
 
-                    # Get symbol information for precision and limits
-                    symbol_info = await exchange.load_markets()
-                    market = exchange.market(trade_order.symbol)
-
-                    # Get precision requirements
-                    price_precision = market['precision']['price']
-                    amount_precision = market['precision']['amount']
-
-                    # Get limits
-                    min_amount = market['limits']['amount']['min']
-                    min_cost = market['limits']['cost']['min']
-
-                    # Round amounts to exchange precision
-                    stop_price = round(float(trade_order.stop_loss), price_precision)
+                    # Use the stop_loss_value for stop loss placement
+                    stop_price = round(float(stop_loss_value), price_precision)
                     rounded_quantity = round(float(trade_order.amount), amount_precision)
 
                     # Calculate limit price with buffer (0.1% worse than stop price)
@@ -437,6 +427,10 @@ class ExchangeService:
                         try:
                             logger.info(f"Attempting stop loss with order_type: {order_type}")
                             logger.info(f"Parameters: symbol={trade_order.symbol}, side={stop_side}, amount={rounded_quantity}, limit_price={limit_price}, stop_price={stop_price}")
+
+                            # Get symbol information for precision and limits
+                            await exchange.client.load_markets()
+                            market = exchange.client.market(trade_order.symbol)
 
                             stop_loss_order = await exchange.create_order(
                                 symbol=trade_order.symbol,
