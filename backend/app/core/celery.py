@@ -36,12 +36,12 @@ celery_app.conf.update(
     beat_schedule={
         # Daily Cassava data update at 00:05 UTC
         'update-cassava-data-daily': {
-            'task': 'app.tasks.cassava_data_tasks.update_cassava_data_daily',
+            'task': 'tasks.update_cassava_trend_data',
             'schedule': crontab(hour=0, minute=5),
         },
         # Daily Cassava data cleanup at 00:10 UTC
         'cleanup-old-cassava-data': {
-            'task': 'app.tasks.cassava_data_tasks.cleanup_old_cassava_data',
+            'task': 'tasks.cleanup_old_cassava_data',
             'schedule': crontab(hour=0, minute=10),
         },
         # Daily manual stop loss update at 00:15 UTC
