@@ -19,7 +19,7 @@ from app.services.activity_service import ActivityService, ActivityCreate
 from app.services.strategy_service import StrategyService
 from app.trading.data_service import data_service
 from app.trading.trading_service import trading_service
-from app.services.stop_loss_timeout_handler import create_stop_loss_safe
+from app.services.stop_loss_timeout_handler import create_stop_loss_safe, safe_dynamic_stoploss_update
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -121,25 +121,48 @@ class ManualStopLossService:
                     
                     # Implement EMA25 trailing logic: only update if D-1 EMA25 > current stop loss
                     if d1_ema25 > current_stop_loss:
-                        # Update stop loss to D-1 EMA25
                         new_stop_loss = d1_ema25
-                        
-                        # Update the trade record
                         trade = self.db.query(Trade).filter(Trade.id == trade_id).first()
                         if trade:
                             old_stop_loss = trade.stop_loss
                             trade.stop_loss = new_stop_loss
                             self.db.commit()
-                            
-                            # Place new stop loss order on exchange using timeout handler
-                            exchange_order_created = await self._place_exchange_stop_loss_order(
-                                trade, new_stop_loss, user_id
+                            # Get the exchange connection
+                            connection = self.db.query(ExchangeConnection).filter(
+                                ExchangeConnection.user_id == user_id,
+                                ExchangeConnection.exchange_name == 'binance'
+                            ).first()
+                            if not connection:
+                                logger.error(f"No exchange connection found for user {user_id}")
+                                continue
+                            # Get the user
+                            user = self.db.query(User).filter(User.id == user_id).first()
+                            if not user:
+                                logger.error(f"User {user_id} not found")
+                                continue
+                            # Get exchange instance
+                            exchange = await trading_service.get_exchange(connection.exchange_name)
+                            if not exchange:
+                                logger.error("Failed to get exchange instance")
+                                continue
+                            # Define a get_position_func for this trade
+                            def get_position_func(symbol):
+                                return {'quantity': float(trade.quantity)}
+                            # Use the safe wrapper for dynamic stop loss update
+                            update_result = await safe_dynamic_stoploss_update(
+                                exchange=exchange,
+                                session=self.db,
+                                symbol=symbol,
+                                current_stop=current_stop_loss,
+                                new_ema_stop=new_stop_loss,
+                                user_id=user_id,
+                                exchange_conn=connection,
+                                user=user,
+                                activity_service=self.activity_service,
+                                get_position_func=get_position_func
                             )
-                            
-                            if exchange_order_created:
-                                # Log the stop loss update
+                            if update_result.get('success'):
                                 self._log_stop_loss_update(trade, old_stop_loss, new_stop_loss, d1_ema25)
-                                
                                 results['updated_trades'] += 1
                                 results['details'].append({
                                     'trade_id': trade_id,
@@ -149,25 +172,22 @@ class ManualStopLossService:
                                     'd1_ema25': d1_ema25,
                                     'status': 'updated_with_exchange_order'
                                 })
-                                
                                 logger.info(f"Manual trade {trade_id} stop loss updated with exchange order: {old_stop_loss} -> {new_stop_loss} (D-1 EMA25: {d1_ema25})")
                             else:
-                                # Exchange order failed, but database was updated
                                 results['details'].append({
                                     'trade_id': trade_id,
                                     'symbol': symbol,
                                     'old_stop_loss': old_stop_loss,
                                     'new_stop_loss': new_stop_loss,
                                     'd1_ema25': d1_ema25,
-                                    'status': 'database_updated_exchange_failed'
+                                    'status': 'exchange_update_failed',
+                                    'reason': update_result.get('reason')
                                 })
-                                
-                                logger.warning(f"Manual trade {trade_id} stop loss database updated but exchange order failed: {old_stop_loss} -> {new_stop_loss}")
+                                logger.warning(f"Manual trade {trade_id} stop loss update failed on exchange: {update_result.get('reason')}")
                         else:
                             results['errors'] += 1
                             logger.error(f"Trade {trade_id} not found for stop loss update")
                     else:
-                        # Keep current stop loss (D-1 EMA25 <= current stop loss)
                         results['details'].append({
                             'trade_id': trade_id,
                             'symbol': symbol,

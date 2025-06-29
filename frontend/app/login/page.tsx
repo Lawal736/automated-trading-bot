@@ -17,6 +17,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    console.log('Submitting email:', email);
 
     try {
       // Call backend through nginx proxy
@@ -61,11 +62,11 @@ export default function LoginPage() {
             <input
               id="email"
               name="email"
-              type="email"
+              type="text"
               autoComplete="email"
               required
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value.replace(/\s+/g, '').toLowerCase())}
               className="w-full px-3 py-2 mt-1 text-white bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               disabled={loading}
             />

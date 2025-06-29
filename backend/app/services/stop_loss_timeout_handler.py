@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.trading import Trade, OrderStatus
 from app.schemas.activity import ActivityCreate
 from app.services.activity_service import ActivityService
+from app.trading.exchanges.base import OrderType, OrderSide
 
 logger = logging.getLogger(__name__)
 
@@ -346,3 +347,104 @@ async def create_stop_loss_safe(trade_order, user_id, exchange_conn, user, activ
             activity_service.log_activity(session, user, activity_data)
         
         return None 
+
+async def cancel_and_replace_stoploss(
+    exchange, session: Session, symbol: str, new_stop_price: float, position_quantity: float, user_id: int, exchange_conn, user, activity_service: ActivityService
+) -> Dict[str, Any]:
+    """
+    Cancel all open stop loss orders for the symbol, then place a new stop loss order with the new price and position quantity.
+    """
+    max_retries = 3
+    retry_delay = 1
+    for attempt in range(max_retries):
+        try:
+            # Step 1: Get current open orders
+            open_orders = await exchange.get_open_orders(symbol)
+            stop_loss_orders = [order for order in open_orders if order.order_type.value.upper() in ["STOP_LOSS", "STOP_LOSS_LIMIT"]]
+            if not stop_loss_orders:
+                # No existing stop-loss, create new one
+                return await create_stop_loss_safe(
+                    trade_order=type('MockTradeOrder', (), {
+                        'symbol': symbol,
+                        'side': 'sell',
+                        'amount': position_quantity,
+                        'stop_loss': new_stop_price
+                    })(),
+                    user_id=user_id,
+                    exchange_conn=exchange_conn,
+                    user=user,
+                    activity_service=activity_service,
+                    exchange=exchange,
+                    session=session
+                )
+            # Step 2: Cancel existing stop-loss orders
+            cancelled_orders = []
+            for order in stop_loss_orders:
+                try:
+                    result = await exchange.cancel_order(order.id, symbol)
+                    if result:
+                        cancelled_orders.append(order)
+                    await asyncio.sleep(0.1)
+                except Exception as e:
+                    if "Unknown order" not in str(e):
+                        raise e
+            # Step 3: Place new stop-loss
+            if cancelled_orders:
+                return await create_stop_loss_safe(
+                    trade_order=type('MockTradeOrder', (), {
+                        'symbol': symbol,
+                        'side': 'sell',
+                        'amount': position_quantity,
+                        'stop_loss': new_stop_price
+                    })(),
+                    user_id=user_id,
+                    exchange_conn=exchange_conn,
+                    user=user,
+                    activity_service=activity_service,
+                    exchange=exchange,
+                    session=session
+                )
+        except Exception as e:
+            logger.error(f"Error in cancel_and_replace_stoploss for {symbol}: {e}")
+            if attempt == max_retries - 1:
+                raise e
+            await asyncio.sleep(retry_delay * (2 ** attempt))
+    return None
+
+async def safe_dynamic_stoploss_update(
+    exchange, session: Session, symbol: str, current_stop: float, new_ema_stop: float, user_id: int, exchange_conn, user, activity_service: ActivityService, get_position_func, min_distance_pct: float = 0.005
+) -> Dict[str, Any]:
+    """
+    Safe wrapper for dynamic stop loss update with all trading rules and validation.
+    """
+    try:
+        # Only update if new stop is higher (for long positions)
+        if new_ema_stop <= current_stop:
+            logger.info(f"New stop-loss {new_ema_stop} not higher than current {current_stop} for {symbol}")
+            return {"success": False, "reason": "New stop-loss not higher than current"}
+        # Check if we have an open position
+        position = get_position_func(symbol)
+        if not position or position['quantity'] == 0:
+            logger.info(f"No open position found for {symbol}")
+            return {"success": False, "reason": "No open position found"}
+        # Validate new stop price isn't too close to current price
+        ticker = await exchange.get_ticker(symbol)
+        current_price = float(ticker.last_price) if ticker else None
+        if current_price is None:
+            logger.warning(f"Could not fetch current price for {symbol}")
+            return {"success": False, "reason": "Could not fetch current price"}
+        if abs(current_price - new_ema_stop) / current_price < min_distance_pct:
+            logger.info(f"Stop-loss {new_ema_stop} too close to current price {current_price} for {symbol}")
+            return {"success": False, "reason": "Stop-loss too close to current price"}
+        # New rule: stop-loss cannot be >= current price
+        if new_ema_stop >= current_price:
+            logger.info(f"Stop-loss {new_ema_stop} cannot be >= current price {current_price} for {symbol}")
+            return {"success": False, "reason": "Stop-loss cannot be >= current price"}
+        # Perform the update
+        result = await cancel_and_replace_stoploss(
+            exchange, session, symbol, new_ema_stop, position['quantity'], user_id, exchange_conn, user, activity_service
+        )
+        return {"success": True, "result": result}
+    except Exception as e:
+        logger.error(f"Failed to update stop-loss for {symbol}: {e}")
+        return {"success": False, "reason": str(e)} 

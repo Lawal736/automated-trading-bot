@@ -35,7 +35,7 @@ from app.trading.trading_service import trading_service
 from app.schemas.activity import ActivityCreate
 from app.trading.exchanges.factory import ExchangeFactory
 from app.trading.exchanges.base import OrderType
-from app.services.stop_loss_timeout_handler import create_stop_loss_safe
+from app.services.stop_loss_timeout_handler import create_stop_loss_safe, safe_dynamic_stoploss_update
 
 logger = get_logger(__name__)
 
@@ -664,21 +664,28 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                                                 )
                                                 activity_service.log_activity(db, user, activity)
                                             # --- Place stop loss order on exchange using timeout handler ---
-                                            class TradeOrderObj:
-                                                symbol = symbol
-                                                side = order_side.value
-                                                amount = amount_to_trade
-                                                stop_loss = d1_ema25
-                                            trade_order_obj = TradeOrderObj()
                                             # Use the trading_service's exchange instance
                                             exchange = loop.run_until_complete(trading_service.get_exchange_client(connection))
-                                            stop_loss_order = loop.run_until_complete(create_stop_loss_safe(
-                                                trade_order_obj, bot.user_id, connection, user, activity_service, exchange, db
+                                            # Define a get_position_func for this bot position
+                                            def get_position_func(symbol):
+                                                return {'quantity': float(amount_to_trade)}
+                                            # Use the safe wrapper for dynamic stop loss update
+                                            update_result = loop.run_until_complete(safe_dynamic_stoploss_update(
+                                                exchange=exchange,
+                                                session=db,
+                                                symbol=symbol,
+                                                current_stop=0,  # No previous stop for new position
+                                                new_ema_stop=d1_ema25,
+                                                user_id=bot.user_id,
+                                                exchange_conn=connection,
+                                                user=user,
+                                                activity_service=activity_service,
+                                                get_position_func=get_position_func
                                             ))
-                                            if stop_loss_order:
-                                                logger.info(f"Cassava bot: Stop loss order created successfully using timeout handler for {symbol}")
+                                            if update_result.get('success'):
+                                                logger.info(f"Cassava bot: Stop loss order created successfully using cancel-and-replace for {symbol}")
                                             else:
-                                                logger.warning(f"Cassava bot: Stop loss creation failed for {symbol}, but main trade will continue")
+                                                logger.warning(f"Cassava bot: Stop loss creation failed for {symbol}: {update_result.get('reason')}")
                             except Exception as sl_error:
                                 logger.error(f"Failed to set initial stop loss for Cassava strategy: {sl_error}")
                                 # Don't fail the trade if stop loss setting fails
@@ -868,12 +875,10 @@ def retry_stop_loss_order(trade_id: int):
             conn = db.query(ExchangeConnection).filter(ExchangeConnection.id == trade.exchange_connection_id).first()
             if not conn:
                 raise Exception("Exchange connection not found")
-            
             # Get the user
             user = db.query(User).filter(User.id == trade.user_id).first()
             if not user:
                 raise Exception("User not found")
-            
             # Find the original trade to get the user's intended stop loss price
             original_trade = db.query(Trade).filter(
                 and_(
@@ -885,56 +890,38 @@ def retry_stop_loss_order(trade_id: int):
                     Trade.created_at < trade.created_at  # Original trade was created before this stop loss
                 )
             ).order_by(Trade.created_at.desc()).first()
-
             if not original_trade:
                 logger.error(f"Original trade not found for stop loss trade {trade.id}")
                 return
-
             # Use the user's stored stop loss price from the original trade
             stop_loss_price = original_trade.stop_loss if original_trade.stop_loss else trade.price
             logger.info(f"Using stop loss price: {stop_loss_price} from original trade {original_trade.id}")
-
-            # Create a mock trade order object for the stop loss
-            class MockTradeOrder:
-                def __init__(self, symbol, side, amount, stop_loss):
-                    self.symbol = symbol
-                    self.side = side
-                    self.amount = amount
-                    self.stop_loss = stop_loss
-
-            # For stop loss trades, we need to sell the position to create stop loss
-            trade_order = MockTradeOrder(
-                symbol=trade.symbol,
-                side="sell",  # Sell to create stop loss for long position
-                amount=trade.quantity,
-                stop_loss=stop_loss_price
-            )
-            
             # Get exchange instance
-            exchange_service = ExchangeService(db)
-            exchange = asyncio.run(exchange_service.get_exchange_client_for_user(trade.user_id, conn.exchange_name))
-            
-            # Use the robust timeout handler to create stop loss order
-            stop_loss_order = asyncio.run(create_stop_loss_safe(
-                trade_order, 
-                trade.user_id, 
-                conn, 
-                user, 
-                activity_service, 
-                exchange, 
-                db
+            exchange = asyncio.run(trading_service.get_exchange(conn.exchange_name))
+            # Define a get_position_func for this trade
+            def get_position_func(symbol):
+                return {'quantity': float(trade.quantity)}
+            # Use the safe wrapper for dynamic stop loss update
+            update_result = asyncio.run(safe_dynamic_stoploss_update(
+                exchange=exchange,
+                session=db,
+                symbol=trade.symbol,
+                current_stop=trade.stop_loss,
+                new_ema_stop=stop_loss_price,
+                user_id=trade.user_id,
+                exchange_conn=conn,
+                user=user,
+                activity_service=activity_service,
+                get_position_func=get_position_func
             ))
-            
-            if stop_loss_order:
-                # Success - update trade record
+            if update_result.get('success'):
                 trade.stop_loss_retry_count = 0
                 trade.stop_loss_last_attempt = now
                 trade.status = OrderStatus.OPEN.value
-                trade.exchange_order_id = str(stop_loss_order.id)
+                # Optionally update exchange_order_id if available
                 db.commit()
-                logger.info(f"Stop loss order created successfully using timeout handler: {stop_loss_order.id}")
+                logger.info(f"Stop loss order created successfully using cancel-and-replace for trade {trade.id}")
             else:
-                # Failed - increment retry count
                 retry_count += 1
                 trade.stop_loss_retry_count = retry_count
                 trade.stop_loss_last_attempt = now
@@ -944,10 +931,10 @@ def retry_stop_loss_order(trade_id: int):
                 else:
                     trade.stop_loss_failed = True
                     db.commit()
-                    # Close the trade after max retries
                     asyncio.run(_close_trade_after_failed_stop_loss(db, trade, user))
+                logger.warning(f"Stop loss retry failed for trade {trade.id}: {update_result.get('reason')}")
                 return
-                
+
         except Exception as e:
             retry_count += 1
             trade.stop_loss_retry_count = retry_count
@@ -958,7 +945,6 @@ def retry_stop_loss_order(trade_id: int):
             else:
                 trade.stop_loss_failed = True
                 db.commit()
-                # Close the trade after max retries
                 asyncio.run(_close_trade_after_failed_stop_loss(db, trade, user))
     except Exception as outer_e:
         logger.error(f"Error in retry_stop_loss_order for trade {trade_id}: {outer_e}")
