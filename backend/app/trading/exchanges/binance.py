@@ -5,6 +5,8 @@ from datetime import datetime
 import decimal
 import pandas as pd
 from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
+import logging
+import traceback
 
 from app.trading.exchanges.base import (
     BaseExchange, OrderBook, Trade, Order, Balance, Position,
@@ -221,8 +223,16 @@ class BinanceExchange(BaseExchange):
     
     async def create_order(self, symbol: str, order_type: OrderType, side: OrderSide,
                           amount: Decimal, price: Optional[Decimal] = None,
-                          params: Optional[Dict[str, Any]] = None) -> Order:
-        """Create a new order"""
+                          params: Optional[Dict[str, Any]] = None, **kwargs):
+        # DEFENSIVE CHECK: Catch if 'type' is passed in kwargs (which would cause the error)
+        if 'type' in kwargs:
+            logging.error(f"[CRITICAL ERROR] BinanceExchange.create_order called with 'type' in kwargs: {kwargs}")
+            logging.error(f"[CRITICAL ERROR] This should use 'order_type' instead of 'type'")
+            logging.error(f"[CRITICAL ERROR] Full call: symbol={symbol}, order_type={order_type}, side={side}, amount={amount}, price={price}, params={params}, kwargs={kwargs}")
+            logging.error(f"[CRITICAL ERROR] Stack trace:\n{traceback.format_exc()}")
+            raise ValueError("BinanceExchange.create_order() called with 'type' in kwargs. Use 'order_type' instead.")
+        
+        logging.warning(f"[DEBUG] BinanceExchange.create_order called with symbol={symbol}, order_type={order_type}, side={side}, amount={amount}, price={price}, params={params}, kwargs={kwargs}")
         client = self._get_client_for_symbol(symbol)
         try:
             order_params = params or {}
@@ -242,7 +252,7 @@ class BinanceExchange(BaseExchange):
             )
             return self._parse_order(result)
         except Exception as e:
-            logger.error(f"Error creating order for {symbol} on Binance: {e}", exc_info=True)
+            logging.error(f"[DEBUG] BinanceExchange.create_order EXCEPTION: {e}\nArgs: symbol={symbol}, order_type={order_type}, side={side}, amount={amount}, price={price}, params={params}, kwargs={kwargs}\nStack trace:\n{traceback.format_exc()}")
             raise
     
     async def get_order(self, order_id: str, symbol: str) -> Order:

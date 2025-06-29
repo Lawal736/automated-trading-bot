@@ -9,13 +9,17 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 import pandas as pd
 import logging
+import asyncio
 
 from app.models.trading import Trade, Position, OrderStatus
 from app.models.user import User
 from app.models.activity import Activity
+from app.models.exchange import ExchangeConnection
 from app.services.activity_service import ActivityService, ActivityCreate
 from app.services.strategy_service import StrategyService
 from app.trading.data_service import data_service
+from app.trading.trading_service import trading_service
+from app.services.stop_loss_timeout_handler import create_stop_loss_safe
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,13 +32,8 @@ class ManualStopLossService:
         self.activity_service = ActivityService(Activity)
         
     def get_manual_trades_with_stop_loss_management(self) -> List[Dict[str, Any]]:
-        """Get all manual trades that have EMA25 trailing stop loss enabled"""
+        """Get all manual trades that should have EMA25 trailing stop loss management"""
         try:
-            # Get manual trades (bot_id is None) that have stop loss management enabled
-            # This would be tracked in a separate table or in the trade metadata
-            # For now, we'll implement a simple approach using trade metadata
-            
-            # Get all manual trades with stop losses
             manual_trades = self.db.query(Trade).filter(
                 and_(
                     Trade.bot_id.is_(None),  # Manual trades only
@@ -75,8 +74,8 @@ class ManualStopLossService:
             logger.error(f"Error getting manual trades with stop loss management: {e}")
             return []
     
-    def update_manual_trade_stop_losses(self) -> Dict[str, Any]:
-        """Update stop losses for all manual trades using EMA25 trailing logic"""
+    async def update_manual_trade_stop_losses(self) -> Dict[str, Any]:
+        """Update stop losses for all manual trades using EMA25 trailing logic with exchange orders"""
         try:
             managed_trades = self.get_manual_trades_with_stop_loss_management()
             results = {
@@ -132,20 +131,38 @@ class ManualStopLossService:
                             trade.stop_loss = new_stop_loss
                             self.db.commit()
                             
-                            # Log the stop loss update
-                            self._log_stop_loss_update(trade, old_stop_loss, new_stop_loss, d1_ema25)
+                            # Place new stop loss order on exchange using timeout handler
+                            exchange_order_created = await self._place_exchange_stop_loss_order(
+                                trade, new_stop_loss, user_id
+                            )
                             
-                            results['updated_trades'] += 1
-                            results['details'].append({
-                                'trade_id': trade_id,
-                                'symbol': symbol,
-                                'old_stop_loss': old_stop_loss,
-                                'new_stop_loss': new_stop_loss,
-                                'd1_ema25': d1_ema25,
-                                'status': 'updated'
-                            })
-                            
-                            logger.info(f"Manual trade {trade_id} stop loss updated: {old_stop_loss} -> {new_stop_loss} (D-1 EMA25: {d1_ema25})")
+                            if exchange_order_created:
+                                # Log the stop loss update
+                                self._log_stop_loss_update(trade, old_stop_loss, new_stop_loss, d1_ema25)
+                                
+                                results['updated_trades'] += 1
+                                results['details'].append({
+                                    'trade_id': trade_id,
+                                    'symbol': symbol,
+                                    'old_stop_loss': old_stop_loss,
+                                    'new_stop_loss': new_stop_loss,
+                                    'd1_ema25': d1_ema25,
+                                    'status': 'updated_with_exchange_order'
+                                })
+                                
+                                logger.info(f"Manual trade {trade_id} stop loss updated with exchange order: {old_stop_loss} -> {new_stop_loss} (D-1 EMA25: {d1_ema25})")
+                            else:
+                                # Exchange order failed, but database was updated
+                                results['details'].append({
+                                    'trade_id': trade_id,
+                                    'symbol': symbol,
+                                    'old_stop_loss': old_stop_loss,
+                                    'new_stop_loss': new_stop_loss,
+                                    'd1_ema25': d1_ema25,
+                                    'status': 'database_updated_exchange_failed'
+                                })
+                                
+                                logger.warning(f"Manual trade {trade_id} stop loss database updated but exchange order failed: {old_stop_loss} -> {new_stop_loss}")
                         else:
                             results['errors'] += 1
                             logger.error(f"Trade {trade_id} not found for stop loss update")
@@ -182,6 +199,75 @@ class ManualStopLossService:
                 'errors': 1,
                 'details': [{'status': 'error', 'error': str(e)}]
             }
+    
+    async def _place_exchange_stop_loss_order(self, trade: Trade, new_stop_loss: float, user_id: int) -> bool:
+        """Place a new stop loss order on the exchange using the timeout handler"""
+        try:
+            # Get the exchange connection
+            connection = self.db.query(ExchangeConnection).filter(
+                ExchangeConnection.user_id == user_id,
+                ExchangeConnection.exchange_name == 'binance'  # Assuming Binance for now
+            ).first()
+            
+            if not connection:
+                logger.error(f"No exchange connection found for user {user_id}")
+                return False
+            
+            # Get the user
+            user = self.db.query(User).filter(User.id == user_id).first()
+            if not user:
+                logger.error(f"User {user_id} not found")
+                return False
+            
+            # Add exchange connection to trading service
+            success = await trading_service.add_exchange_connection(connection)
+            if not success:
+                logger.error(f"Failed to add exchange connection {connection.exchange_name} to trading service")
+                return False
+            
+            # Create a mock trade order object for the stop loss
+            class MockTradeOrder:
+                def __init__(self, symbol, side, amount, stop_loss):
+                    self.symbol = symbol
+                    self.side = side
+                    self.amount = amount
+                    self.stop_loss = stop_loss
+            
+            # For manual trades, we need to sell the position to create stop loss
+            trade_order = MockTradeOrder(
+                symbol=trade.symbol,
+                side="sell",  # Sell to create stop loss for long position
+                amount=trade.quantity,
+                stop_loss=new_stop_loss
+            )
+            
+            # Get exchange instance
+            exchange = await trading_service.get_exchange(connection.exchange_name)
+            if not exchange:
+                logger.error("Failed to get exchange instance")
+                return False
+            
+            # Use the robust timeout handler to create stop loss order
+            stop_loss_order = await create_stop_loss_safe(
+                trade_order, 
+                user_id, 
+                connection, 
+                user, 
+                self.activity_service, 
+                exchange, 
+                self.db
+            )
+            
+            if stop_loss_order:
+                logger.info(f"Manual trade stop loss order created successfully: {stop_loss_order.id}")
+                return True
+            else:
+                logger.warning(f"Manual trade stop loss order creation failed")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error placing exchange stop loss order for trade {trade.id}: {e}")
+            return False
     
     def _log_stop_loss_update(self, trade: Trade, old_stop_loss: float, new_stop_loss: float, d1_ema25: float):
         """Log stop loss update activity"""

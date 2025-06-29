@@ -2,6 +2,7 @@
 Celery tasks for manual trade stop loss management
 """
 
+import asyncio
 from celery import current_task
 from sqlalchemy.orm import Session
 from typing import Dict, Any
@@ -23,7 +24,14 @@ def update_manual_stop_losses() -> Dict[str, Any]:
         logger.info("Starting manual stop loss update task")
         
         manual_service = ManualStopLossService(db)
-        results = manual_service.update_manual_trade_stop_losses()
+        
+        # Run the async function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            results = loop.run_until_complete(manual_service.update_manual_trade_stop_losses())
+        finally:
+            loop.close()
         
         logger.info(f"Manual stop loss update completed: {results['updated_trades']} updated, {results['errors']} errors")
         

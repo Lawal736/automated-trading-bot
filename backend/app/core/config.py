@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     # New setting
     POSITION_SYNC_INTERVAL_MINUTES: int = int(os.getenv("POSITION_SYNC_INTERVAL_MINUTES", 5))
     
+    # Add missing fields to match .env
+    BINANCE_API_SECRET: Optional[str] = None
+    BINANCE_TESTNET_API_KEY: Optional[str] = None
+    BINANCE_TESTNET_API_SECRET: Optional[str] = None
+    KUCOIN_SANDBOX_PASSWORD: Optional[str] = None
+    NEXT_PUBLIC_API_URL: Optional[str] = None
+    
     @field_validator("ALLOWED_HOSTS", mode='before')
     def assemble_cors_origins(cls, v):
         if isinstance(v, str) and not v.startswith("["):

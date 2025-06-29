@@ -13,6 +13,7 @@ from datetime import datetime
 from app.schemas.ticker import Ticker
 from app.schemas.trade import TradeOrder, TradeResult
 from app.services.bot_service import CRUDBot
+from app.trading.exchanges.base import OrderType
 
 logger = get_logger(__name__)
 
@@ -376,131 +377,18 @@ class ExchangeService:
             if trade_order.stop_loss:
                 logger.info(f"Stop loss value provided: {trade_order.stop_loss}")
                 try:
-                    # Use the stop loss price directly from the trade order (user's intended stop loss)
-                    stop_loss_value = trade_order.stop_loss
-                    logger.info(f"Using user's stored stop loss: {stop_loss_value}")
-
-                    # Use the stop_loss_value for stop loss placement
-                    stop_price = round(float(stop_loss_value), price_precision)
-                    rounded_quantity = round(float(trade_order.amount), amount_precision)
-
-                    # Calculate limit price with buffer (0.1% worse than stop price)
-                    if stop_side == "sell":
-                        limit_price = round(stop_price * 0.999, price_precision)  # Slightly lower for sell
-                    else:
-                        limit_price = round(stop_price * 1.001, price_precision)  # Slightly higher for buy
-
-                    # Validate minimum amount
-                    if rounded_quantity < min_amount:
-                        raise ValueError(f"Stop loss quantity {rounded_quantity} below minimum {min_amount}")
-
-                    # Validate minimum notional value
-                    order_value = rounded_quantity * stop_price
-                    if order_value < min_cost:
-                        raise ValueError(f"Stop loss order value {order_value} below minimum notional {min_cost}")
-
-                    # Check available balance
-                    try:
-                        balance = await exchange.fetch_balance()
-                        if stop_side == "sell":
-                            # For sell orders, check base currency balance
-                            base_currency = trade_order.symbol.split('/')[0]
-                            available_balance = balance.get(base_currency, {}).get('free', 0)
-                            if available_balance < rounded_quantity:
-                                raise ValueError(f"Insufficient {base_currency} balance: {available_balance} < {rounded_quantity}")
-                        else:
-                            # For buy orders, check quote currency balance
-                            quote_currency = trade_order.symbol.split('/')[1]
-                            available_balance = balance.get(quote_currency, {}).get('free', 0)
-                            required_balance = rounded_quantity * limit_price
-                            if available_balance < required_balance:
-                                raise ValueError(f"Insufficient {quote_currency} balance: {available_balance} < {required_balance}")
-                    except Exception as balance_error:
-                        logger.warning(f"Could not verify balance: {balance_error}")
-                        # Continue anyway - let exchange handle balance validation
-
-                    # Create pending stop loss record first
-                    pending_stop_loss = Trade(
-                        user_id=user_id,
-                        exchange_connection_id=exchange_conn.id,
-                        symbol=trade_order.symbol,
-                        trade_type="STOP_LOSS",
-                        order_type="stop-limit",
-                        side=stop_side,
-                        quantity=rounded_quantity,
-                        price=Decimal(str(limit_price)),  # Store the limit price
-                        status="pending"
+                    # Use the new timeout handler for robust stop loss creation
+                    from app.services.stop_loss_timeout_handler import create_stop_loss_safe
+                    
+                    stop_loss_order = await create_stop_loss_safe(
+                        trade_order, user_id, exchange_conn, user, activity_service, exchange, self.session
                     )
-                    self.session.add(pending_stop_loss)
-                    self.session.commit()
-
-                    # Prepare order parameters based on exchange
-                    order_params = {
-                        "stopPrice": stop_price,
-                        "timeInForce": "GTC"
-                    }
-
-                    # Try different order type formats for different exchanges
-                    order_type_variants = ["stop_loss_limit", "stop-limit", "STOP_LOSS_LIMIT"]
-                    stop_loss_order = None
-                    last_error = None
-
-                    for order_type in order_type_variants:
-                        try:
-                            logger.info(f"Attempting stop loss with order_type: {order_type}")
-                            logger.info(f"Parameters: symbol={trade_order.symbol}, side={stop_side}, amount={rounded_quantity}, limit_price={limit_price}, stop_price={stop_price}")
-
-                            # Get symbol information for precision and limits
-                            await exchange.client.load_markets()
-                            market = exchange.client.market(trade_order.symbol)
-
-                            stop_loss_order = await exchange.create_order(
-                                symbol=trade_order.symbol,
-                                type=order_type,
-                                side=stop_side,
-                                amount=rounded_quantity,
-                                price=limit_price,
-                                params=order_params
-                            )
-                            logger.info(f"Stop loss order created successfully with type: {order_type}")
-                            break
-
-                        except Exception as order_error:
-                            last_error = order_error
-                            error_msg = str(order_error).lower()
-                            if "order type" in error_msg or "invalid order type" in error_msg:
-                                logger.warning(f"Order type {order_type} not supported, trying next variant")
-                                continue
-                            else:
-                                # If it's not an order type error, don't try other variants
-                                raise order_error
-
-                    if stop_loss_order is None:
-                        raise Exception(f"All order type variants failed. Last error: {last_error}")
-
-                    logger.info(f"Stop loss order response: {stop_loss_order}")
-
-                    # Update stop loss record with exchange result
-                    pending_stop_loss.status = OrderStatus.OPEN.value
-                    pending_stop_loss.exchange_order_id = str(stop_loss_order['id'])
-                    pending_stop_loss.executed_at = datetime.utcnow()
-
-                    # Store additional order info if available
-                    if 'info' in stop_loss_order:
-                        pending_stop_loss.exchange_info = str(stop_loss_order['info'])
-
-                    self.session.commit()
-                    logger.info(f"Stop loss order created: {stop_loss_order['id']} at stop price {stop_price}, limit price {limit_price}")
-
-                    # Log activity for stop loss order
-                    if user:
-                        activity_data = ActivityCreate(
-                            type="STOP_LOSS_ORDER",
-                            description=f"Stop loss order created for {trade_order.symbol} at stop: {stop_price}, limit: {limit_price} (order id: {stop_loss_order['id']}, trade id: {pending_stop_loss.id})",
-                            amount=rounded_quantity
-                        )
-                        activity_service.log_activity(self.session, user, activity_data)
-
+                    
+                    if stop_loss_order:
+                        logger.info(f"Stop loss order created successfully using timeout handler")
+                    else:
+                        logger.warning("Stop loss creation failed, but main trade will continue")
+                        
                 except Exception as stop_loss_error:
                     error_msg = str(stop_loss_error)
                     logger.error(f"Failed to create stop loss order: {stop_loss_error}")
@@ -521,13 +409,6 @@ class ExchangeService:
                         logger.error("❌ RATE LIMIT ERROR: Too many requests to exchange")
                     else:
                         logger.error("❌ UNKNOWN ERROR: Check exchange connection and parameters")
-
-                    # Update stop loss record with failed status
-                    if 'pending_stop_loss' in locals():
-                        pending_stop_loss.status = OrderStatus.REJECTED.value
-                        if hasattr(pending_stop_loss, 'error_message'):
-                            pending_stop_loss.error_message = error_msg[:500]  # Store first 500 chars of error
-                        self.session.commit()
 
                     # Log activity for stop loss failure
                     if user:

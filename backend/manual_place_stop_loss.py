@@ -3,7 +3,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.models.trading import Trade
 from app.models.exchange import ExchangeConnection
+from app.models.user import User
 from app.services.exchange_service import ExchangeService
+from app.services.activity_service import ActivityService, ActivityCreate
+from app.services.stop_loss_timeout_handler import create_stop_loss_safe
 from app.trading.exchanges.factory import ExchangeFactory
 from app.core.config import settings
 import logging
@@ -34,20 +37,12 @@ async def main():
             logger.error(f"Exchange connection {trade.exchange_connection_id} not found.")
             return
 
-        # Create exchange instance
-        exchange = ExchangeFactory.create_exchange(
-            exchange_name=exchange_conn.exchange_name,
-            api_key=exchange_conn.api_key,
-            api_secret=exchange_conn.api_secret,
-            is_testnet=exchange_conn.is_testnet
-        )
+        # Get the user
+        user = session.query(User).filter(User.id == trade.user_id).first()
+        if not user:
+            logger.error(f"User {trade.user_id} not found.")
+            return
 
-        # Load markets and get precision/limits
-        await exchange.client.load_markets()
-        market = exchange.client.market(trade.symbol)
-        price_precision = market['precision']['price']
-        amount_precision = market['precision']['amount']
-        
         # Use user's stored stop loss if available, otherwise calculate default
         if trade.stop_loss is not None:
             stop_loss_price = trade.stop_loss
@@ -60,56 +55,55 @@ async def main():
                 stop_loss_price = trade.executed_price * 1.02  # 2% above executed price for sell orders
             logger.info(f"Using calculated stop loss: {stop_loss_price}")
 
-        # Apply precision to stop loss price
-        stop_price = round(float(stop_loss_price), price_precision)
-        rounded_quantity = round(float(trade.quantity), amount_precision)
-        
-        # Calculate limit price with buffer (0.1% buffer)
+        # Create a mock trade order object for the stop loss
+        class MockTradeOrder:
+            def __init__(self, symbol, side, amount, stop_loss):
+                self.symbol = symbol
+                self.side = side
+                self.amount = amount
+                self.stop_loss = stop_loss
+
         # For buy orders: stop loss is sell order (stop below executed price)
         # For sell orders: stop loss is buy order (stop above executed price)
         side = 'sell' if trade.side == 'buy' else 'buy'
         
-        if side == 'sell':
-            # Selling to stop loss - limit price should be below stop price
-            limit_price = round(stop_price * 0.999, price_precision)  # 0.1% below stop price
-        else:
-            # Buying to stop loss - limit price should be above stop price
-            limit_price = round(stop_price * 1.001, price_precision)  # 0.1% above stop price
+        trade_order = MockTradeOrder(
+            symbol=trade.symbol,
+            side=side,
+            amount=trade.quantity,
+            stop_loss=stop_loss_price
+        )
         
-        logger.info(f"Precision - Price: {price_precision}, Amount: {amount_precision}")
-        logger.info(f"Rounded values - Stop price: {stop_price}, Limit price: {limit_price}, Quantity: {rounded_quantity}")
-        logger.info(f"Attempting to place stop loss: symbol={trade.symbol}, side={side}, amount={rounded_quantity}, stop_price={stop_price}, limit_price={limit_price}")
+        logger.info(f"Attempting to place stop loss: symbol={trade.symbol}, side={side}, amount={trade.quantity}, stop_loss={stop_loss_price}")
 
-        order_params = {"stopPrice": stop_price, "timeInForce": "GTC"}
-        order_type_variants = ["stop_loss_limit", "stop-limit", "STOP_LOSS_LIMIT"]
-        stop_loss_order = None
-        last_error = None
+        # Create exchange instance
+        exchange = ExchangeFactory.create_exchange(
+            exchange_name=exchange_conn.exchange_name,
+            api_key=exchange_conn.api_key,
+            api_secret=exchange_conn.api_secret,
+            is_testnet=exchange_conn.is_testnet
+        )
+
+        # Create activity service
+        activity_service = ActivityService(ActivityCreate)
+
+        # Use the robust timeout handler to create stop loss order
+        stop_loss_order = await create_stop_loss_safe(
+            trade_order, 
+            trade.user_id, 
+            exchange_conn, 
+            user, 
+            activity_service, 
+            exchange, 
+            session
+        )
         
-        for order_type in order_type_variants:
-            try:
-                logger.info(f"Trying order_type: {order_type}")
-                stop_loss_order = await exchange.client.create_order(
-                    symbol=trade.symbol,
-                    type=order_type,
-                    side=side,
-                    amount=rounded_quantity,
-                    price=limit_price,
-                    params=order_params
-                )
-                logger.info(f"Stop loss order created: {stop_loss_order}")
-                break
-            except Exception as e:
-                last_error = e
-                logger.error(f"Failed with order_type {order_type}: {e}")
-                continue
-                
-        if stop_loss_order is None:
-            logger.error(f"All order type variants failed. Last error: {last_error}")
+        if stop_loss_order:
+            logger.info(f"Stop loss order placed successfully using timeout handler: {stop_loss_order}")
         else:
-            logger.info(f"Stop loss order placed successfully: {stop_loss_order}")
+            logger.error("Stop loss order creation failed using timeout handler")
             
     finally:
-        await exchange.close()
         session.close()
 
 if __name__ == "__main__":

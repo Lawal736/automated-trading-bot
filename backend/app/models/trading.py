@@ -52,6 +52,7 @@ class Trade(Base):
     # Order status
     status = Column(String(20), default=OrderStatus.PENDING.value)
     exchange_order_id = Column(String(255))  # Exchange's order ID
+    client_order_id = Column(String(255), nullable=True)  # Client-generated order ID for idempotency
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now())

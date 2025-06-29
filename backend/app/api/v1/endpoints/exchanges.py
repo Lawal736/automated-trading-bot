@@ -85,7 +85,14 @@ async def get_ticker(
     """
     Get the current ticker price for a symbol on a given exchange.
     """
-    ccxt_symbol = symbol.replace("-", "/")
+    # Convert symbol format for different exchanges
+    if exchange_name.lower() == "binance":
+        # Binance uses BTCUSDT format (no separators)
+        ccxt_symbol = symbol.replace("-", "").replace("/", "")
+    else:
+        # Other exchanges use BTC/USDT format
+        ccxt_symbol = symbol.replace("-", "/")
+    
     ticker = await exchange_service.get_ticker(
         user_id=current_user.id, exchange_name=exchange_name, symbol=ccxt_symbol
     )

@@ -16,6 +16,7 @@ class OrderType(str, Enum):
     LIMIT = "limit"
     STOP = "stop"
     STOP_LIMIT = "stop_limit"
+    STOP_LOSS_LIMIT = "stop_loss_limit"
 
 
 class OrderSide(str, Enum):
