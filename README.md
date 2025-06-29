@@ -15,7 +15,15 @@ A comprehensive automated trading bot platform supporting multiple cryptocurrenc
 
 ## 🆕 Recent Updates
 
-### Dynamic Stop Loss System (Latest)
+### Digital Ocean Deployment Ready (Latest)
+- ✅ **GitHub Actions CI/CD**: Automatic deployment from GitHub to Digital Ocean
+- ✅ **Production Docker Configuration**: Optimized for cloud deployment
+- ✅ **SSL/TLS Support**: Secure HTTPS with Let's Encrypt integration
+- ✅ **Automated Backups**: Daily database and data backups
+- ✅ **Monitoring & Health Checks**: Comprehensive system monitoring
+- ✅ **Security Hardening**: Firewall, fail2ban, and security headers
+
+### Dynamic Stop Loss System
 - ✅ **Cancel-and-Replace Logic**: Prevents duplicate stop loss orders on exchanges
 - ✅ **EMA25 Trailing Stop Loss**: Dynamic stop loss updates based on technical indicators
 - ✅ **Robust Error Handling**: Timeout management and retry mechanisms
@@ -56,8 +64,11 @@ A comprehensive automated trading bot platform supporting multiple cryptocurrenc
 │   ├── public/             # Static assets
 │   └── package.json        # Node.js dependencies
 ├── docker/                 # Docker configuration files
+├── scripts/                # Utility scripts
+│   ├── deploy.sh           # Digital Ocean deployment script
+│   └── setup-digitalocean.sh # Server setup automation
 ├── docs/                   # Documentation
-└── scripts/                # Utility scripts
+└── .github/workflows/      # GitHub Actions CI/CD
 ```
 
 ## 🛠 Tech Stack
@@ -83,6 +94,13 @@ A comprehensive automated trading bot platform supporting multiple cryptocurrenc
 - **numpy** - Numerical computing
 - **pandas-ta** - Technical analysis indicators
 
+### DevOps & Deployment
+- **Docker & Docker Compose** - Containerization
+- **Digital Ocean** - Cloud hosting
+- **GitHub Actions** - CI/CD pipeline
+- **Nginx** - Reverse proxy and load balancer
+- **Let's Encrypt** - SSL certificates
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -92,7 +110,7 @@ A comprehensive automated trading bot platform supporting multiple cryptocurrenc
 - PostgreSQL
 - Redis
 
-### Installation
+### Local Development
 
 1. **Clone the repository**
 ```bash
@@ -141,9 +159,39 @@ cd frontend
 npm run dev
 ```
 
+## 🌐 Digital Ocean Deployment
+
+### Quick Deployment
+
+1. **Set up Digital Ocean resources**
+   - Create a Container Registry
+   - Create a Droplet (Ubuntu 22.04 LTS, 2GB RAM minimum)
+   - Generate API token
+
+2. **Configure GitHub Secrets**
+   - Go to your repository → Settings → Secrets and variables → Actions
+   - Add: `DIGITALOCEAN_ACCESS_TOKEN`, `DIGITALOCEAN_REGISTRY`, `DIGITALOCEAN_HOST`, `DIGITALOCEAN_USERNAME`, `DIGITALOCEAN_SSH_KEY`
+
+3. **Deploy automatically**
+   ```bash
+   git push origin main
+   ```
+   The GitHub Actions workflow will automatically build and deploy to Digital Ocean.
+
+### Manual Deployment
+
+For detailed step-by-step instructions, see [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md).
+
+### Server Setup
+
+Run the automated server setup script on your Digital Ocean droplet:
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourusername/your-repo/main/scripts/setup-digitalocean.sh | sudo bash
+```
+
 ## 🔧 Configuration
 
-The application uses environment variables for configuration. See `.env.example` for all available options.
+The application uses environment variables for configuration. See `.env.example` for development and `env.prod.example` for production options.
 
 Key configuration areas:
 - Database connections
@@ -151,6 +199,7 @@ Key configuration areas:
 - Redis and RabbitMQ settings
 - JWT secrets
 - External service API keys
+- Digital Ocean registry settings
 
 ## 🧪 Testing
 
@@ -176,14 +225,21 @@ npm test
 - [API Documentation](./docs/api.md)
 - [Trading Strategy Guide](./docs/strategies.md)
 - [Dynamic Stop Loss Guide](./docs/dynamic_stop_loss.md)
-- [Deployment Guide](./docs/deployment.md)
+- **[Digital Ocean Deployment Guide](./DEPLOYMENT_GUIDE.md)** ⭐
 - [Contributing Guidelines](./docs/contributing.md)
 
 ## 🎯 Key Features Explained
 
+### Digital Ocean Deployment
+The platform is fully optimized for Digital Ocean deployment with:
+- **Automatic CI/CD**: GitHub Actions workflow for seamless deployment
+- **Production Security**: SSL/TLS, firewall, fail2ban, security headers
+- **Monitoring**: Health checks, log rotation, automated backups
+- **Scalability**: Docker containers with load balancing
+- **Cost Optimization**: Efficient resource usage and monitoring
+
 ### Dynamic Stop Loss System
 The platform features an advanced dynamic stop loss system that:
-
 - **Prevents Duplicate Orders**: Uses cancel-and-replace logic to ensure only one stop loss order per position
 - **EMA25 Trailing**: Automatically updates stop losses based on EMA25 technical indicator
 - **Rule Enforcement**: Validates stop loss prices against market conditions and trading rules
@@ -213,4 +269,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 For support and questions:
 - Create an issue in the GitHub repository
 - Check the documentation in the `docs/` folder
-- Review the test files for usage examples 
+- Review the test files for usage examples
+- For deployment issues, see [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) 
