@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean, Text, CheckConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.models.base_class import Base
@@ -24,6 +25,7 @@ class Bot(Base):
     
     name = Column(String(255), nullable=False)
     strategy_name = Column(String(255), nullable=False)
+    strategy_params = Column(JSONB, nullable=True)  # Store strategy parameters including timeframe for future strategies
     description = Column(Text)
     
     # Core trading settings
