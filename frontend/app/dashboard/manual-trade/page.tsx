@@ -143,6 +143,7 @@ export default function ManualTradePage() {
       amount: tradeForm.amount,
       price: tradeForm.orderType === 'limit' ? tradeForm.price : undefined,
       stop_loss: tradeForm.stopLoss !== undefined && !isNaN(tradeForm.stopLoss) ? tradeForm.stopLoss : undefined,
+      leverage: tradeForm.tradeType === 'futures' ? tradeForm.leverage : undefined,
       enable_ema25_trailing: tradeForm.enableEma25Trailing,
     };
 
