@@ -61,7 +61,7 @@ class Trade(Base):
     
     # Check constraints
     __table_args__ = (
-        CheckConstraint(trade_type.in_(['spot', 'futures']), name='valid_trade_type'),
+        CheckConstraint(trade_type.in_(['spot', 'futures', 'STOP_LOSS']), name='valid_trade_type'),
         CheckConstraint(order_type.in_(['market', 'limit', 'stop', 'stop_limit', 'stop-limit']), name='valid_order_type'),
         CheckConstraint(side.in_(['buy', 'sell']), name='valid_side'),
         CheckConstraint(status.in_(['pending', 'open', 'filled', 'partially_filled', 'cancelled', 'rejected']), name='valid_status'),

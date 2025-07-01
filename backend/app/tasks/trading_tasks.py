@@ -506,7 +506,7 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                     bot_id=bot.id,
                     exchange_connection_id=bot.exchange_connection_id,
                     symbol=symbol,
-                    trade_type="spot",  # Assuming spot trading for now
+                    trade_type=bot.trade_type,  # CRITICAL FIX: Use bot's trade_type (spot/futures)
                     order_type=OrderType.MARKET.value,
                     side=order_side.value,
                     quantity=amount_to_trade,
@@ -538,8 +538,11 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                 raise Exception(f"Failed to log bot trade in system: {db_error}")
 
             # STEP 2: Execute trade on exchange
-            logger.info(f"Executing {order_side.value} trade for {amount_to_trade:.4f} {symbol.split('/')[0]} on bot {bot.id}")
+            logger.info(f"Executing {order_side.value} {bot.trade_type} trade for {amount_to_trade:.4f} {symbol.split('/')[0]} on bot {bot.id}")
 
+            # CRITICAL FIX: Pass trade_type to ensure proper exchange client selection
+            order_params = {"trade_type": bot.trade_type} if bot.trade_type == "futures" else None
+            
             order_result = loop.run_until_complete(
                 trading_service.create_order(
                     connection_id=bot.exchange_connection_id,
@@ -547,7 +550,8 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                     order_type=OrderType.MARKET,
                     side=order_side,
                     amount=Decimal(str(amount_to_trade)),
-                    price=None  # Market order
+                    price=None,  # Market order
+                    params=order_params  # Pass trade_type for futures
                 )
             )
 
@@ -601,17 +605,34 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                         
                         entry_price = float(order_result.price) if order_result.price else current_price
                         
+                        # CRITICAL FIX: Set leverage for futures bots before creating position
+                        bot_leverage = bot.leverage or (1 if bot.trade_type == "spot" else 10)
+                        
+                        if bot.trade_type == "futures":
+                            try:
+                                # Set leverage on exchange for futures bot
+                                exchange = loop.run_until_complete(trading_service.get_exchange_by_connection_id(bot.exchange_connection_id))
+                                if exchange:
+                                    leverage_set = loop.run_until_complete(exchange.set_leverage(symbol, bot_leverage))
+                                    if leverage_set:
+                                        logger.info(f"Bot {bot.id}: Leverage set to {bot_leverage}x for futures position on {symbol}")
+                                    else:
+                                        logger.warning(f"Bot {bot.id}: Failed to set leverage for {symbol}, using exchange default")
+                            except Exception as leverage_error:
+                                logger.error(f"Bot {bot.id}: Error setting leverage for {symbol}: {leverage_error}")
+                                # Don't fail the trade if leverage setting fails
+                        
                         position = Position(
                             user_id=bot.user_id,
                             bot_id=bot.id,
                             exchange_connection_id=bot.exchange_connection_id,
                             symbol=symbol,
-                            trade_type="spot",  # Assuming spot trading for bots
+                            trade_type=bot.trade_type,  # CRITICAL FIX: Use bot's trade_type
                             side=order_side.value,
                             quantity=amount_to_trade,
                             entry_price=entry_price,
                             current_price=entry_price,
-                            leverage=1,  # Spot trading has leverage of 1
+                            leverage=bot_leverage,  # CRITICAL FIX: Use bot's leverage setting
                             exchange_order_id=str(order_result.id),  # Store the exchange order ID
                             unrealized_pnl=0.0,  # Will be calculated later
                             realized_pnl=0.0,
@@ -701,7 +722,7 @@ def _execute_trade(db: Session, bot: Bot, symbol: str, signal: Signal):
                     status_text = "closed" if order_result.status == "closed" else "open"
                     activity = ActivityCreate(
                         type="BOT_TRADE",
-                        description=f"Bot '{bot.name}' successfully executed {order_side.value} of {amount_to_trade:.4f} {symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id}, order id: {order_result.id})",
+                        description=f"Bot '{bot.name}' successfully executed {bot.trade_type} {order_side.value} of {amount_to_trade:.4f} {symbol.split('/')[0]} at market price ({bot_leverage}x leverage). Status: {status_text} (trade id: {pending_trade.id}, order id: {order_result.id})",
                         amount=amount_to_trade
                     )
                     activity_service.log_activity(db, user, activity)

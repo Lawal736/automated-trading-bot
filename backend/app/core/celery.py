@@ -70,6 +70,9 @@ celery_app.conf.update(
         "tasks.grid_performance_monitor": {"queue": "monitoring"},
         "tasks.emergency_grid_stop": {"queue": "emergency"},
         "tasks.cleanup_completed_grids": {"queue": "cleanup"},
+        "tasks.position_safety_monitor": {"queue": "safety"},
+        "tasks.emergency_position_scan": {"queue": "emergency"},
+        "tasks.check_unprotected_position": {"queue": "safety"},
     },
     beat_schedule={
         # Position price updates every 2 minutes
@@ -214,6 +217,13 @@ celery_app.conf.update(
         'cleanup-old-metrics': {
             'task': 'tasks.cleanup_old_metrics',
             'schedule': crontab(hour=3, minute=0),
+        },
+        
+        # COMPREHENSIVE POSITION SAFETY SYSTEM
+        # Position safety monitor every 15 minutes (15-minute retry + 4-hour force closure)
+        'position-safety-monitor': {
+            'task': 'tasks.position_safety_monitor',
+            'schedule': crontab(minute='*/15'),
         },
     }
 ) 

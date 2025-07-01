@@ -233,14 +233,26 @@ class BinanceExchange(BaseExchange):
             raise ValueError("BinanceExchange.create_order() called with 'type' in kwargs. Use 'order_type' instead.")
         
         logging.warning(f"[DEBUG] BinanceExchange.create_order called with symbol={symbol}, order_type={order_type}, side={side}, amount={amount}, price={price}, params={params}, kwargs={kwargs}")
-        client = self._get_client_for_symbol(symbol)
+        
+        # CRITICAL FIX: Choose client based on trade_type parameter
+        order_params = params or {}
+        trade_type = order_params.get('trade_type', 'spot')  # Default to spot if not specified
+        
+        if trade_type == 'futures':
+            client = self.futures_client
+            logger.info(f"Using futures client for {symbol} trade_type={trade_type}")
+        else:
+            client = self.client
+            logger.info(f"Using spot client for {symbol} trade_type={trade_type}")
+        
         try:
-            order_params = params or {}
-            
             # Map order type for Binance compatibility
             binance_order_type = order_type if isinstance(order_type, str) else order_type.value
             if binance_order_type == "stop_limit":
                 binance_order_type = "STOP_LOSS_LIMIT"
+            
+            # Remove trade_type from params before sending to exchange
+            exchange_params = {k: v for k, v in order_params.items() if k != 'trade_type'}
             
             result = await client.create_order(
                 symbol=symbol,
@@ -248,7 +260,7 @@ class BinanceExchange(BaseExchange):
                 side=side if isinstance(side, str) else side.value,
                 amount=float(amount),
                 price=float(price) if price else None,
-                params=order_params
+                params=exchange_params
             )
             return self._parse_order(result)
         except Exception as e:

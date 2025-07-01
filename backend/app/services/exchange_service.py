@@ -194,13 +194,28 @@ class ExchangeService:
         # STEP 2: Execute trade on exchange
         try:
             logger.info(f"Executing trade on exchange for user {user_id}: {trade_order.model_dump_json()}")
-            order_result = await exchange.create_order(
-                symbol=trade_order.symbol,
-                order_type=trade_order.order_type,
-                side=trade_order.side,
-                amount=trade_order.amount,
-                price=trade_order.price,
-            )
+            
+            # CRITICAL FIX: Handle futures vs spot trading
+            if trade_order.trade_type == "futures":
+                # For futures trading, we need to use the futures client
+                # Pass trade_type information to the exchange
+                order_result = await exchange.create_order(
+                    symbol=trade_order.symbol,
+                    order_type=trade_order.order_type,
+                    side=trade_order.side,
+                    amount=trade_order.amount,
+                    price=trade_order.price,
+                    params={"trade_type": "futures"}  # Pass futures indication
+                )
+            else:
+                # Spot trading (original logic)
+                order_result = await exchange.create_order(
+                    symbol=trade_order.symbol,
+                    order_type=trade_order.order_type,
+                    side=trade_order.side,
+                    amount=trade_order.amount,
+                    price=trade_order.price,
+                )
 
             # In-depth check of the result from ccxt
             order_status = order_result.status
@@ -276,27 +291,27 @@ class ExchangeService:
 
                 # Create position record for successful trade
                 try:
-                    # For spot trading, create a position record
-                    if trade_order.trade_type == "spot":
-                        # Check if position already exists for this order
-                        existing_position = self.session.query(Position).filter(
-                            Position.exchange_order_id == str(order_result.id),
-                            Position.symbol == trade_order.symbol,
-                            Position.user_id == user_id
-                        ).first()
+                    # Check if position already exists for this order
+                    existing_position = self.session.query(Position).filter(
+                        Position.exchange_order_id == str(order_result.id),
+                        Position.symbol == trade_order.symbol,
+                        Position.user_id == user_id
+                    ).first()
+                    
+                    if existing_position:
+                        logger.warning(f"Position already exists for order {order_result.id} - skipping creation")
+                    else:
+                        # Validate required fields before creating position
+                        if not trade_order.amount or trade_order.amount <= 0:
+                            raise ValueError(f"Invalid trade amount: {trade_order.amount}")
                         
-                        if existing_position:
-                            logger.warning(f"Position already exists for order {order_result.id} - skipping creation")
-                        else:
-                            # Validate required fields before creating position
-                            if not trade_order.amount or trade_order.amount <= 0:
-                                raise ValueError(f"Invalid trade amount: {trade_order.amount}")
-                            
-                            if not order_result.price and not trade_order.price:
-                                raise ValueError("No price available for position creation")
-                            
-                            entry_price = float(order_result.price) if order_result.price else float(trade_order.price or 0)
-                            
+                        if not order_result.price and not trade_order.price:
+                            raise ValueError("No price available for position creation")
+                        
+                        entry_price = float(order_result.price) if order_result.price else float(trade_order.price or 0)
+                        
+                        # CRITICAL FIX: Handle both spot and futures position creation
+                        if trade_order.trade_type == "spot":
                             position = Position(
                                 user_id=user_id,
                                 exchange_connection_id=exchange_conn.id,
@@ -314,19 +329,54 @@ class ExchangeService:
                                 is_open=True,
                                 opened_at=datetime.utcnow()
                             )
+                        elif trade_order.trade_type == "futures":
+                            # CRITICAL FIX: Create futures position with proper leverage
+                            # Use leverage from TradeOrder or default to 10x
+                            leverage = trade_order.leverage or 10
                             
-                            self.session.add(position)
-                            self.session.commit()
-                            logger.info(f"Position record created for manual trade: {position.id} with order ID {order_result.id}")
+                            # Set leverage on exchange if it's a futures trade
+                            try:
+                                leverage_set = await exchange.set_leverage(trade_order.symbol, leverage)
+                                if leverage_set:
+                                    logger.info(f"Leverage set to {leverage}x for futures position on {trade_order.symbol}")
+                                else:
+                                    logger.warning(f"Failed to set leverage for {trade_order.symbol}, using exchange default")
+                            except Exception as leverage_error:
+                                logger.error(f"Error setting leverage for {trade_order.symbol}: {leverage_error}")
+                                # Don't fail the trade if leverage setting fails
                             
-                            # Verify position was created successfully
-                            created_position = self.session.query(Position).filter(
-                                Position.id == position.id
-                            ).first()
-                            
-                            if not created_position:
-                                raise Exception("Position was not saved to database")
-                            
+                            position = Position(
+                                user_id=user_id,
+                                exchange_connection_id=exchange_conn.id,
+                                symbol=trade_order.symbol,
+                                trade_type=trade_order.trade_type,  # futures
+                                side=trade_order.side,
+                                quantity=trade_order.amount,
+                                entry_price=entry_price,
+                                current_price=entry_price,
+                                leverage=leverage,  # Futures trading with specified leverage
+                                exchange_order_id=str(order_result.id),  # Store the exchange order ID
+                                unrealized_pnl=0.0,  # Will be calculated later
+                                realized_pnl=0.0,
+                                total_pnl=0.0,
+                                is_open=True,
+                                opened_at=datetime.utcnow()
+                            )
+                        else:
+                            raise ValueError(f"Unsupported trade_type: {trade_order.trade_type}")
+                        
+                        self.session.add(position)
+                        self.session.commit()
+                        logger.info(f"Position record created for manual {trade_order.trade_type} trade: {position.id} with order ID {order_result.id}")
+                        
+                        # Verify position was created successfully
+                        created_position = self.session.query(Position).filter(
+                            Position.id == position.id
+                        ).first()
+                        
+                        if not created_position:
+                            raise Exception("Position was not saved to database")
+                        
                 except Exception as pos_error:
                     logger.error(f"Failed to create position record: {pos_error}")
                     logger.error(f"Position creation error details: {type(pos_error).__name__}: {str(pos_error)}")
@@ -336,13 +386,14 @@ class ExchangeService:
                 # Log successful trade activity
                 if user:
                     status_text = "closed" if order_result.status == "closed" else "open"
+                    # CRITICAL FIX: Use actual trade_type instead of hardcoded "spot"
                     activity_data = ActivityCreate(
                         type="MANUAL_TRADE",
-                        description=f"Manual spot {trade_order.side} order for {trade_order.amount} {trade_order.symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id})",
+                        description=f"Manual {trade_order.trade_type} {trade_order.side} order for {trade_order.amount} {trade_order.symbol.split('/')[0]} at market price. Status: {status_text} (trade id: {pending_trade.id})",
                         amount=trade_order.amount
                     )
                     activity_service.log_activity(self.session, user, activity_data)
-                    logger.info(f"Activity logged for successful manual trade: {pending_trade.id}")
+                    logger.info(f"Activity logged for successful manual {trade_order.trade_type} trade: {pending_trade.id}")
 
                 # Set up EMA25 trailing stop loss management if enabled
                 if trade_order.enable_ema25_trailing and trade_order.stop_loss:
@@ -409,6 +460,14 @@ class ExchangeService:
                         except Exception as update_error:
                             logger.error(f"Failed to update trade with stop loss failure: {update_error}")
                         
+                        # TRIGGER SAFETY SYSTEM: Schedule immediate position safety check
+                        try:
+                            from app.tasks.position_safety_tasks import check_unprotected_position_task
+                            check_task = check_unprotected_position_task.delay(pending_trade.id)
+                            logger.warning(f"🛡️ Safety system triggered for unprotected Trade ID: {pending_trade.id}, Task: {check_task.id}")
+                        except Exception as safety_error:
+                            logger.critical(f"CRITICAL: Failed to trigger safety system for Trade ID {pending_trade.id}: {safety_error}")
+                        
                 except Exception as stop_loss_error:
                     error_msg = str(stop_loss_error)
                     logger.error(f"Failed to create stop loss order: {stop_loss_error}")
@@ -447,6 +506,14 @@ class ExchangeService:
                         logger.warning(f"Trade record updated with stop loss exception failure")
                     except Exception as update_error:
                         logger.error(f"Failed to update trade with stop loss exception: {update_error}")
+
+                    # TRIGGER SAFETY SYSTEM: Schedule immediate position safety check
+                    try:
+                        from app.tasks.position_safety_tasks import check_unprotected_position_task
+                        check_task = check_unprotected_position_task.delay(pending_trade.id)
+                        logger.warning(f"🛡️ Safety system triggered for unprotected Trade ID: {pending_trade.id}, Task: {check_task.id}")
+                    except Exception as safety_error:
+                        logger.critical(f"CRITICAL: Failed to trigger safety system for Trade ID {pending_trade.id}: {safety_error}")
 
                     # Don't fail the main trade if stop loss fails
                     logger.warning("Main trade will continue despite stop loss failure")
