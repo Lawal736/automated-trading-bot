@@ -36,11 +36,23 @@ const strategies: Strategy[] = [
 ];
 
 const stopLossTypes = [
-  { id: 'fixed_percentage', name: 'Fixed Percentage' },
-  { id: 'trailing_max_price', name: 'Trailing Stop' },
-  { id: 'ema_based', name: 'EMA Based' },
-  { id: 'atr_based', name: 'ATR Based' },
-  { id: 'support_level', name: 'Support Level' },
+  // Basic Types
+  { id: 'fixed_percentage', name: '📏 Fixed Percentage', category: 'Basic' },
+  { id: 'trailing_max_price', name: '📈 Trailing Stop', category: 'Basic' },
+  { id: 'ema_based', name: '📊 EMA Based', category: 'Basic' },
+  { id: 'atr_based', name: '📉 ATR Based', category: 'Basic' },
+  { id: 'support_level', name: '🎯 Support Level', category: 'Basic' },
+  
+  // Advanced Types  
+  { id: 'adaptive_atr', name: '🔬 Adaptive ATR', category: 'Advanced' },
+  { id: 'volatility_based', name: '⚡ Volatility Based', category: 'Advanced' },
+  { id: 'fibonacci_retracement', name: '🌀 Fibonacci Retracement', category: 'Advanced' },
+  { id: 'supertrend', name: '🚀 SuperTrend', category: 'Advanced' },
+  { id: 'parabolic_sar', name: '🎪 Parabolic SAR', category: 'Advanced' },
+  { id: 'bollinger_band', name: '📊 Bollinger Band', category: 'Advanced' },
+  { id: 'risk_reward_ratio', name: '⚖️ Risk/Reward Ratio', category: 'Advanced' },
+  { id: 'time_decay', name: '⏰ Time Decay', category: 'Advanced' },
+  { id: 'momentum_divergence', name: '📡 Momentum Divergence', category: 'Advanced' },
 ];
 
 // Define the structure for the backtest result
@@ -120,6 +132,23 @@ export default function CreateBotPage() {
   const [stop_loss_atr_period, setStopLossAtrPeriod] = useState(14);
   const [stop_loss_atr_multiplier, setStopLossAtrMultiplier] = useState(2.0);
   const [stop_loss_support_lookback, setStopLossSupportLookback] = useState(20);
+  
+  // Advanced Stop Loss Parameters
+  const [volatility_period, setVolatilityPeriod] = useState(20);
+  const [volatility_multiplier, setVolatilityMultiplier] = useState(2.0);
+  const [fibonacci_lookback, setFibonacciLookback] = useState(100);
+  const [supertrend_period, setSupertrendPeriod] = useState(10);
+  const [supertrend_multiplier, setSupertrendMultiplier] = useState(3.0);
+  const [sar_acceleration, setSarAcceleration] = useState(0.02);
+  const [sar_maximum, setSarMaximum] = useState(0.2);
+  const [bb_period, setBbPeriod] = useState(20);
+  const [bb_std_dev, setBbStdDev] = useState(2.0);
+  const [risk_reward_ratio, setRiskRewardRatio] = useState(1.5);
+  const [time_decay_hours, setTimeDecayHours] = useState(24);
+  const [time_decay_factor, setTimeDecayFactor] = useState(0.1);
+  const [rsi_period, setRsiPeriod] = useState(14);
+  const [rsi_oversold, setRsiOversold] = useState(30);
+  const [rsi_overbought, setRsiOverbought] = useState(70);
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -677,6 +706,162 @@ export default function CreateBotPage() {
                 <input type="number" id="sl-support-lookback" value={stop_loss_support_lookback} onChange={e => setStopLossSupportLookback(parseInt(e.target.value))} className="w-full form-input" />
             </div>
         );
+      
+      // Advanced Stop Loss Types
+      case 'adaptive_atr':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-purple-600">
+            <h5 className="text-sm font-semibold text-purple-300 mb-2">🔬 Adaptive ATR Configuration</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">ATR Period</label>
+                <input type="number" value={stop_loss_atr_period} onChange={e => setStopLossAtrPeriod(parseInt(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Base ATR Multiplier</label>
+                <input type="number" step="0.1" value={stop_loss_atr_multiplier} onChange={e => setStopLossAtrMultiplier(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Adapts ATR multiplier based on volatility trends</p>
+          </div>
+        );
+      
+      case 'volatility_based':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-yellow-600">
+            <h5 className="text-sm font-semibold text-yellow-300 mb-2">⚡ Volatility-Based Configuration</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Volatility Period</label>
+                <input type="number" value={volatility_period} onChange={e => setVolatilityPeriod(parseInt(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Volatility Multiplier</label>
+                <input type="number" step="0.1" value={volatility_multiplier} onChange={e => setVolatilityMultiplier(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Uses price standard deviation for stop loss calculation</p>
+          </div>
+        );
+      
+      case 'fibonacci_retracement':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-orange-600">
+            <h5 className="text-sm font-semibold text-orange-300 mb-2">🌀 Fibonacci Retracement Configuration</h5>
+            <div>
+              <label className="block text-sm font-medium mb-1">Fibonacci Lookback Period</label>
+              <input type="number" value={fibonacci_lookback} onChange={e => setFibonacciLookback(parseInt(e.target.value))} className="w-full form-input" />
+            </div>
+            <p className="text-xs text-gray-400">Places stop loss at 38.2% Fibonacci retracement level</p>
+          </div>
+        );
+      
+      case 'supertrend':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-green-600">
+            <h5 className="text-sm font-semibold text-green-300 mb-2">🚀 SuperTrend Configuration</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">SuperTrend Period</label>
+                <input type="number" value={supertrend_period} onChange={e => setSupertrendPeriod(parseInt(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">SuperTrend Multiplier</label>
+                <input type="number" step="0.1" value={supertrend_multiplier} onChange={e => setSupertrendMultiplier(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Follows SuperTrend indicator for dynamic stop loss</p>
+          </div>
+        );
+      
+      case 'parabolic_sar':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-pink-600">
+            <h5 className="text-sm font-semibold text-pink-300 mb-2">🎪 Parabolic SAR Configuration</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Acceleration Factor</label>
+                <input type="number" step="0.01" value={sar_acceleration} onChange={e => setSarAcceleration(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Maximum Acceleration</label>
+                <input type="number" step="0.1" value={sar_maximum} onChange={e => setSarMaximum(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Uses Parabolic SAR for trend-following stop loss</p>
+          </div>
+        );
+      
+      case 'bollinger_band':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-blue-600">
+            <h5 className="text-sm font-semibold text-blue-300 mb-2">📊 Bollinger Band Configuration</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Bollinger Period</label>
+                <input type="number" value={bb_period} onChange={e => setBbPeriod(parseInt(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Standard Deviation</label>
+                <input type="number" step="0.1" value={bb_std_dev} onChange={e => setBbStdDev(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Places stop loss at Bollinger Band levels</p>
+          </div>
+        );
+      
+      case 'risk_reward_ratio':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-indigo-600">
+            <h5 className="text-sm font-semibold text-indigo-300 mb-2">⚖️ Risk/Reward Ratio Configuration</h5>
+            <div>
+              <label className="block text-sm font-medium mb-1">Risk/Reward Ratio</label>
+              <input type="number" step="0.1" value={risk_reward_ratio} onChange={e => setRiskRewardRatio(parseFloat(e.target.value))} className="w-full form-input" />
+            </div>
+            <p className="text-xs text-gray-400">Calculates stop loss based on take profit target and R:R ratio</p>
+          </div>
+        );
+      
+      case 'time_decay':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-red-600">
+            <h5 className="text-sm font-semibold text-red-300 mb-2">⏰ Time Decay Configuration</h5>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Time Decay Hours</label>
+                <input type="number" value={time_decay_hours} onChange={e => setTimeDecayHours(parseInt(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Decay Factor</label>
+                <input type="number" step="0.01" value={time_decay_factor} onChange={e => setTimeDecayFactor(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Tightens stop loss over time to lock in profits</p>
+          </div>
+        );
+      
+      case 'momentum_divergence':
+        return (
+          <div className="space-y-4 bg-gray-900/50 p-4 rounded-lg border border-teal-600">
+            <h5 className="text-sm font-semibold text-teal-300 mb-2">📡 Momentum Divergence Configuration</h5>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">RSI Period</label>
+                <input type="number" value={rsi_period} onChange={e => setRsiPeriod(parseInt(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">RSI Oversold</label>
+                <input type="number" value={rsi_oversold} onChange={e => setRsiOversold(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">RSI Overbought</label>
+                <input type="number" value={rsi_overbought} onChange={e => setRsiOverbought(parseFloat(e.target.value))} className="w-full form-input" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">Adjusts stop loss based on RSI momentum divergence</p>
+          </div>
+        );
+      
       default:
         return null;
     }
@@ -864,14 +1049,58 @@ export default function CreateBotPage() {
                   </div>
                 )}
                 
-                <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${selectedStrategy === 'cassava_trend_following' ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <div>
-                        <label htmlFor="stop-loss-type" className="form-label">Stop Loss Type</label>
-                        <select id="stop-loss-type" value={stop_loss_type} onChange={e => setStopLossType(e.target.value)} className="w-full form-input">
-                            {stopLossTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                        </select>
+                <div className={`${selectedStrategy === 'cassava_trend_following' ? 'opacity-50 pointer-events-none' : ''}`}>
+                    
+                    {/* Stop Loss Algorithm Selection */}
+                    <div className="mb-6">
+                        <h4 className="text-lg font-semibold mb-4 text-orange-400">🛡️ Stop Loss Algorithm</h4>
+                        
+                        {/* Basic Stop Loss Types */}
+                        <div className="mb-6">
+                            <h5 className="text-md font-semibold mb-3 text-green-400">📏 Basic Algorithms</h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {stopLossTypes.filter(t => t.category === 'Basic').map((type) => (
+                                    <button
+                                        key={type.id}
+                                        type="button"
+                                        onClick={() => setStopLossType(type.id)}
+                                        className={`p-3 border rounded-lg text-left transition-all duration-200 ${
+                                            stop_loss_type === type.id
+                                                ? 'border-green-500 bg-green-900/20 text-green-300'
+                                                : 'border-gray-600 hover:border-gray-500 hover:bg-gray-800/50'
+                                        }`}
+                                    >
+                                        <h6 className="font-semibold text-sm">{type.name}</h6>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        
+                        {/* Advanced Stop Loss Types */}
+                        <div className="mb-6">
+                            <h5 className="text-md font-semibold mb-3 text-purple-400">🔬 Advanced Algorithms</h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {stopLossTypes.filter(t => t.category === 'Advanced').map((type) => (
+                                    <button
+                                        key={type.id}
+                                        type="button"
+                                        onClick={() => setStopLossType(type.id)}
+                                        className={`p-3 border rounded-lg text-left transition-all duration-200 ${
+                                            stop_loss_type === type.id
+                                                ? 'border-purple-500 bg-purple-900/20 text-purple-300'
+                                                : 'border-gray-600 hover:border-gray-500 hover:bg-gray-800/50'
+                                        }`}
+                                    >
+                                        <h6 className="font-semibold text-sm">{type.name}</h6>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                     </div>
-                    <div className="bg-gray-800 p-4 rounded-md border border-gray-700">
+                    
+                    {/* Stop Loss Configuration */}
+                    <div className="bg-gray-800 p-6 rounded-lg border border-gray-700">
+                        <h5 className="text-md font-semibold mb-4 text-blue-400">⚙️ Configuration</h5>
                         {renderStopLossOptions()}
                     </div>
                 </div>
