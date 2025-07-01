@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.tasks.manual_stop_loss_tasks",
         "app.tasks.position_tasks",
         "app.tasks.advanced_stop_loss_tasks",
+        "app.tasks.automated_cassava_tasks",
         "app.tasks.example_tasks"
     ],
     beat_scheduler='redbeat.RedBeatScheduler'
@@ -54,6 +55,13 @@ celery_app.conf.update(
         "tasks.update_advanced_stop_losses": {"queue": "advanced_stop_loss"},
         "tasks.analyze_stop_loss_performance": {"queue": "analytics"},
         "tasks.optimize_stop_loss_parameters": {"queue": "optimization"},
+        "tasks.automated_cassava_data_generation": {"queue": "automated_cassava"},
+        "tasks.cassava_health_monitor": {"queue": "monitoring"},
+        "tasks.cassava_gap_scanner": {"queue": "monitoring"},
+        "tasks.cassava_data_validator": {"queue": "validation"},
+        "tasks.cassava_performance_optimizer": {"queue": "optimization"},
+        "tasks.cassava_emergency_backfill": {"queue": "emergency"},
+        "tasks.cassava_system_report": {"queue": "reporting"},
     },
     beat_schedule={
         # Position price updates every 2 minutes
@@ -115,6 +123,36 @@ celery_app.conf.update(
         'analyze-stop-loss-performance': {
             'task': 'tasks.analyze_stop_loss_performance',
             'schedule': crontab(hour=1, minute=0),
+        },
+        # Automated Cassava data generation every 30 minutes
+        'automated-cassava-generation': {
+            'task': 'tasks.automated_cassava_data_generation',
+            'schedule': crontab(minute='*/30'),
+        },
+        # Cassava health monitoring every 15 minutes
+        'cassava-health-monitor': {
+            'task': 'tasks.cassava_health_monitor',
+            'schedule': crontab(minute='*/15'),
+        },
+        # Cassava gap scanning every 2 hours
+        'cassava-gap-scanner': {
+            'task': 'tasks.cassava_gap_scanner',
+            'schedule': crontab(minute=0, hour='*/2'),
+        },
+        # Data validation daily at 02:00 UTC
+        'cassava-data-validation': {
+            'task': 'tasks.cassava_data_validator',
+            'schedule': crontab(hour=2, minute=0),
+        },
+        # Performance optimization weekly (Sunday at 03:00 UTC)
+        'cassava-performance-optimization': {
+            'task': 'tasks.cassava_performance_optimizer',
+            'schedule': crontab(hour=3, minute=0, day_of_week=0),
+        },
+        # System report daily at 06:00 UTC
+        'cassava-system-report': {
+            'task': 'tasks.cassava_system_report',
+            'schedule': crontab(hour=6, minute=0),
         },
     }
 ) 
