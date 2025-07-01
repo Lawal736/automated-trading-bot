@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -19,7 +20,13 @@ async def lifespan(app: FastAPI):
     # Startup
     setup_logging()
     logger.info("Starting up...")
-    init_db()  # Call synchronously since init_db is now synchronous
+    
+    # Only initialize database if not explicitly skipped
+    if not os.getenv("SKIP_DB_INIT", "").lower() in ["true", "1", "yes"]:
+        init_db()  # Call synchronously since init_db is now synchronous
+    else:
+        logger.info("Skipping database initialization due to SKIP_DB_INIT environment variable")
+    
     logger.info(f"CORS ALLOWED_ORIGINS at startup: {settings.ALLOWED_HOSTS}")
     yield
     # Shutdown
