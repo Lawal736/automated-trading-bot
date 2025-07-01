@@ -169,12 +169,15 @@ class StopLossTimeoutHandler:
             else:
                 limit_price = round(stop_price * 1.001, price_precision)
             
+            # CRITICAL FIX: Inherit trade_type from original trade instead of hardcoding
+            original_trade_type = getattr(trade_order, 'trade_type', 'spot')  # Default to spot if not specified
+            
             # Create pending record
             pending_stop_loss = Trade(
                 user_id=user_id,
                 exchange_connection_id=exchange_conn.id,
                 symbol=trade_order.symbol,
-                trade_type="STOP_LOSS",
+                trade_type="STOP_LOSS",  # This stays STOP_LOSS for tracking purposes
                 order_type="stop-limit",
                 side=stop_side,
                 quantity=rounded_quantity,
@@ -185,14 +188,15 @@ class StopLossTimeoutHandler:
             self.session.add(pending_stop_loss)
             self.session.commit()
             
-            # Create order with timeout
+            # CRITICAL FIX: Create order with correct trade_type to ensure proper exchange client
             order_params = {
                 "stopPrice": stop_price,
                 "timeInForce": "GTC",
-                "newClientOrderId": client_order_id  # Binance parameter for idempotency
+                "newClientOrderId": client_order_id,  # Binance parameter for idempotency
+                "trade_type": original_trade_type  # CRITICAL: Pass original trade type (futures/spot)
             }
             
-            logger.info(f"Creating stop loss order with client ID: {client_order_id}")
+            logger.info(f"Creating {original_trade_type} stop loss order with client ID: {client_order_id}")
             
             # Try different order types for different exchanges/modes
             order_type_variants = [
@@ -208,7 +212,7 @@ class StopLossTimeoutHandler:
             
             for order_type in order_type_variants:
                 try:
-                    logger.info(f"Trying order type: {order_type}")
+                    logger.info(f"Trying {original_trade_type} order type: {order_type}")
                     
                     # Set timeout for the order creation
                     stop_loss_order = await asyncio.wait_for(
@@ -218,12 +222,12 @@ class StopLossTimeoutHandler:
                             side=stop_side,
                             amount=rounded_quantity,
                             price=limit_price,
-                            params=order_params
+                            params=order_params  # ✅ Now includes trade_type for proper client selection
                         ),
                         timeout=10.0  # 10 second timeout
                     )
                     
-                    logger.info(f"Success with order type: {order_type}")
+                    logger.info(f"Success with {original_trade_type} order type: {order_type}")
                     break
                     
                 except asyncio.TimeoutError:
@@ -233,14 +237,14 @@ class StopLossTimeoutHandler:
                     last_error = e
                     error_msg = str(e).lower()
                     if "order type" in error_msg or "invalid" in error_msg or "not a valid" in error_msg:
-                        logger.warning(f"Order type {order_type} not supported: {e}")
+                        logger.warning(f"Order type {order_type} not supported for {original_trade_type}: {e}")
                         continue
                     else:
                         # If it's not an order type error, don't try other variants
                         raise e
             
             if stop_loss_order is None:
-                raise Exception(f"All order types failed. Last error: {last_error}")
+                raise Exception(f"All {original_trade_type} order types failed. Last error: {last_error}")
             
             # Handle both dict and object responses
             order_id = self._get_order_id(stop_loss_order)
@@ -251,13 +255,13 @@ class StopLossTimeoutHandler:
             pending_stop_loss.executed_at = datetime.utcnow()
             self.session.commit()
             
-            logger.info(f"Stop loss created successfully: {order_id}")
+            logger.info(f"{original_trade_type} stop loss created successfully: {order_id}")
             
             # Log activity
             if user:
                 activity_data = ActivityCreate(
                     type="STOP_LOSS_ORDER",
-                    description=f"Stop loss order created for {trade_order.symbol} at {stop_price} (ID: {order_id})",
+                    description=f"{original_trade_type.title()} stop loss order created for {trade_order.symbol} at {stop_price} (ID: {order_id})",
                     amount=rounded_quantity
                 )
                 activity_service.log_activity(self.session, user, activity_data)
@@ -281,6 +285,9 @@ class StopLossTimeoutHandler:
         Handle case where order already exists
         """
         try:
+            # CRITICAL FIX: Get original trade type for consistency
+            original_trade_type = getattr(trade_order, 'trade_type', 'spot')
+            
             # Find or create the trade record
             pending_stop_loss = self.session.query(Trade).filter(
                 Trade.user_id == user_id,
@@ -296,7 +303,7 @@ class StopLossTimeoutHandler:
                     user_id=user_id,
                     exchange_connection_id=exchange_conn.id,
                     symbol=trade_order.symbol,
-                    trade_type="STOP_LOSS",
+                    trade_type="STOP_LOSS",  # This stays STOP_LOSS for tracking purposes
                     order_type="stop-limit",
                     side=stop_side,
                     quantity=float(self._get_order_field(existing_order, 'amount')),
@@ -312,7 +319,7 @@ class StopLossTimeoutHandler:
             pending_stop_loss.executed_at = datetime.utcnow()
             self.session.commit()
             
-            logger.info(f"Linked existing stop loss order: {order_id}")
+            logger.info(f"Linked existing {original_trade_type} stop loss order: {order_id}")
             
             return existing_order
             
