@@ -164,7 +164,7 @@ class ExchangeService:
                 status=OrderStatus.PENDING.value,
                 exchange_order_id=None,  # Will be updated after exchange execution
                 executed_at=None,  # Will be updated after exchange execution
-                stop_loss=trade_order.stop_loss  # Store the user's intended stop loss
+                stop_loss=None  # CRITICAL FIX: Only set after stop loss order succeeds
             )
             
             self.session.add(pending_trade)
@@ -386,8 +386,28 @@ class ExchangeService:
                     
                     if stop_loss_order:
                         logger.info(f"Stop loss order created successfully using timeout handler")
+                        
+                        # CRITICAL FIX: Only set stop_loss field AFTER successful creation
+                        try:
+                            pending_trade.stop_loss = trade_order.stop_loss
+                            pending_trade.stop_loss_failed = False
+                            self.session.commit()
+                            logger.info(f"Trade record updated with successful stop loss: {trade_order.stop_loss}")
+                        except Exception as update_error:
+                            logger.error(f"Failed to update trade with stop loss info: {update_error}")
+                            # This is critical - if we can't update the trade record,
+                            # the position will be untracked
                     else:
                         logger.warning("Stop loss creation failed, but main trade will continue")
+                        
+                        # CRITICAL FIX: Ensure stop_loss remains NULL for failed creation
+                        try:
+                            pending_trade.stop_loss = None
+                            pending_trade.stop_loss_failed = True
+                            self.session.commit()
+                            logger.warning(f"Trade record updated with failed stop loss creation")
+                        except Exception as update_error:
+                            logger.error(f"Failed to update trade with stop loss failure: {update_error}")
                         
                 except Exception as stop_loss_error:
                     error_msg = str(stop_loss_error)
@@ -418,6 +438,15 @@ class ExchangeService:
                             amount=trade_order.amount
                         )
                         activity_service.log_activity(self.session, user, activity_data)
+
+                    # CRITICAL FIX: Ensure stop_loss remains NULL for failed creation
+                    try:
+                        pending_trade.stop_loss = None
+                        pending_trade.stop_loss_failed = True
+                        self.session.commit()
+                        logger.warning(f"Trade record updated with stop loss exception failure")
+                    except Exception as update_error:
+                        logger.error(f"Failed to update trade with stop loss exception: {update_error}")
 
                     # Don't fail the main trade if stop loss fails
                     logger.warning("Main trade will continue despite stop loss failure")
