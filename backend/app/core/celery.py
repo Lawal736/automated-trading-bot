@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.tasks.cassava_bot_tasks",
         "app.tasks.manual_stop_loss_tasks",
         "app.tasks.position_tasks",
+        "app.tasks.advanced_stop_loss_tasks",
         "app.tasks.example_tasks"
     ],
     beat_scheduler='redbeat.RedBeatScheduler'
@@ -50,6 +51,9 @@ celery_app.conf.update(
         "tasks.update_cassava_trend_data": {"queue": "data_updates"},
         "tasks.update_manual_stop_losses": {"queue": "stop_loss_management"},
         "tasks.update_cassava_bot_stop_losses": {"queue": "stop_loss_management"},
+        "tasks.update_advanced_stop_losses": {"queue": "advanced_stop_loss"},
+        "tasks.analyze_stop_loss_performance": {"queue": "analytics"},
+        "tasks.optimize_stop_loss_parameters": {"queue": "optimization"},
     },
     beat_schedule={
         # Position price updates every 2 minutes
@@ -101,6 +105,16 @@ celery_app.conf.update(
         'sweep-failed-stop-losses': {
             'task': 'tasks.sweep_and_close_failed_stop_loss_trades',
             'schedule': crontab(minute=0),
+        },
+        # Advanced stop loss updates every 5 minutes
+        'update-advanced-stop-losses': {
+            'task': 'tasks.update_advanced_stop_losses',
+            'schedule': crontab(minute='*/5'),
+        },
+        # Stop loss performance analysis daily at 01:00 UTC
+        'analyze-stop-loss-performance': {
+            'task': 'tasks.analyze_stop_loss_performance',
+            'schedule': crontab(hour=1, minute=0),
         },
     }
 ) 

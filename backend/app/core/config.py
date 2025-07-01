@@ -26,23 +26,23 @@ class Settings(BaseSettings):
     TRUSTED_HOSTS: List[str] = ["*"]  # Allow all hosts in development
     
     # Database settings
-    POSTGRES_SERVER: str = "trading_bot_postgres_prod"
+    POSTGRES_SERVER: str = "postgres"
     POSTGRES_USER: str = "trading_user"
     POSTGRES_PASSWORD: str = "test1234"
     POSTGRES_DB: str = "trading_bot"
     POSTGRES_PORT: str = "5432"
-    DATABASE_URL: str = "postgresql://trading_user:test1234@trading_bot_postgres_prod:5432/trading_bot"
-    DATABASE_URI: str = "postgresql://trading_user:test1234@trading_bot_postgres_prod:5432/trading_bot"
-    ASYNC_DATABASE_URI: str = "postgresql+asyncpg://trading_user:test1234@trading_bot_postgres_prod:5432/trading_bot"
+    DATABASE_URL: str = "postgresql://trading_user:test1234@postgres:5432/trading_bot"
+    DATABASE_URI: str = "postgresql://trading_user:test1234@postgres:5432/trading_bot"
+    ASYNC_DATABASE_URI: str = "postgresql+asyncpg://trading_user:test1234@postgres:5432/trading_bot"
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 30
     
     # Redis settings
-    REDIS_URL: str = "redis://trading_bot_redis_prod:6379/0"
+    REDIS_URL: str = "redis://redis:6379/0"
     REDIS_PASSWORD: Optional[str] = None
     
     # RabbitMQ settings
-    RABBITMQ_URL: str = "amqp://guest:guest@trading_bot_rabbitmq_prod:5672/"
+    RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/"
     
     # Exchange API settings
     BINANCE_API_KEY: Optional[str] = None
@@ -106,8 +106,8 @@ class Settings(BaseSettings):
     DB_ECHO: bool = False
     
     # Celery
-    CELERY_BROKER_URL: str = "redis://trading_bot_redis_prod:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://trading_bot_redis_prod:6379/0"
+    CELERY_BROKER_URL: str = "redis://redis:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
     
     # New setting
     POSITION_SYNC_INTERVAL_MINUTES: int = int(os.getenv("POSITION_SYNC_INTERVAL_MINUTES", 5))
