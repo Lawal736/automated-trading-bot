@@ -31,6 +31,7 @@ class User(Base):
     full_name = Column(String(255))
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
+    is_superuser = Column(Boolean, default=False)
     role = Column(String(15), default=UserRole.USER.value)  # user, admin, moderator
     
     # Subscription and billing

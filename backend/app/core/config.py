@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     TRUSTED_HOSTS: List[str] = ["*"]  # Allow all hosts in development
     
     # Database settings
-    POSTGRES_SERVER: str = "postgres"
+    POSTGRES_SERVER: str = "trading_bot_postgres_prod"
     POSTGRES_USER: str = "trading_user"
     POSTGRES_PASSWORD: str = "test1234"
     POSTGRES_DB: str = "trading_bot"
