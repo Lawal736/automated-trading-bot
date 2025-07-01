@@ -33,7 +33,7 @@ def register_new_user(
     return user
 
 
-@router.post("/login", response_model=auth_schema.Token)
+@router.post("/login/access-token", response_model=auth_schema.Token)
 def login_for_access_token(
     db: Session = Depends(deps.get_db),
     form_data: OAuth2PasswordRequestForm = Depends()
