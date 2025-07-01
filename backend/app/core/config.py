@@ -26,13 +26,13 @@ class Settings(BaseSettings):
     TRUSTED_HOSTS: List[str] = ["*"]  # Allow all hosts in development
     
     # Database settings
-    POSTGRES_SERVER: str = "postgres"
+    POSTGRES_SERVER: str = "trading_bot_postgres_prod"
     POSTGRES_USER: str = "trading_user"
     POSTGRES_PASSWORD: str = "your_strong_password"
     POSTGRES_DB: str = "trading_bot"
     POSTGRES_PORT: str = "5432"
     DATABASE_URL: str = "postgresql://trading_user:your_strong_password@postgres:5432/trading_bot"
-    DATABASE_URI: str = "postgresql://trading_user:your_strong_password@postgres:5432/trading_bot"
+    DATABASE_URI: str = "postgresql://trading_user:test1234@trading_bot_postgres_prod:5432/trading_bot"
     ASYNC_DATABASE_URI: str = "postgresql+asyncpg://trading_user:your_strong_password@postgres:5432/trading_bot"
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 30
