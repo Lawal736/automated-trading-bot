@@ -662,11 +662,20 @@ def get_total_balance(db: Session, *, user_id: int) -> dict:
 
     # Using asyncio.run is a modern and safer way to run an async function from a sync context.
     try:
-        asyncio.run(fetch_balances())
-    except RuntimeError:
-        # If an event loop is already running (e.g., in a notebook), use a different approach.
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(fetch_balances())
+        # Check if we're in an async context first
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, run in thread pool
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, fetch_balances())
+                future.result()
+        except RuntimeError:
+            # No running loop, we can use asyncio.run safely
+            asyncio.run(fetch_balances())
+    except Exception as e:
+        logger.error(f"Failed to fetch balances for user {user_id}: {e}")
+        # If all else fails, return empty balance
 
     # Add the final total USD value to the balances dictionary for the response.
     total_balances["total_usd_value"] = total_usd_value
