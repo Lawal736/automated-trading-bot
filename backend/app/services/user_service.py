@@ -1,4 +1,7 @@
 from typing import Any, Dict, Optional, Union, List
+import secrets
+import hashlib
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -72,6 +75,56 @@ class UserService(ServiceBase[User, UserCreate, UserUpdate]):
         db.add(user)
         db.commit()
         db.refresh(user)
+        return user
+
+    def generate_password_reset_token(self, db: Session, *, user: User) -> str:
+        """Generate a secure password reset token"""
+        # Generate a random token
+        token = secrets.token_urlsafe(32)
+        
+        # Hash the token for storage (security best practice)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        
+        # Set expiration time (1 hour from now)
+        expires_at = datetime.utcnow() + timedelta(hours=1)
+        
+        # Store the hashed token and expiration in user record
+        user.reset_token_hash = token_hash
+        user.reset_token_expires_at = expires_at
+        db.add(user)
+        db.commit()
+        
+        # Return the plain token (to be sent via email)
+        return token
+
+    def verify_password_reset_token(self, db: Session, *, token: str) -> Optional[User]:
+        """Verify password reset token and return user if valid"""
+        # Hash the provided token
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        
+        # Find user with matching token hash
+        user = db.query(self.model).filter(
+            self.model.reset_token_hash == token_hash,
+            self.model.reset_token_expires_at > datetime.utcnow()
+        ).first()
+        
+        return user
+
+    def reset_password_with_token(self, db: Session, *, token: str, new_password: str) -> Optional[User]:
+        """Reset password using token"""
+        user = self.verify_password_reset_token(db, token=token)
+        if not user:
+            return None
+        
+        # Update password
+        self.update_password(db, user=user, new_password=new_password)
+        
+        # Clear reset token
+        user.reset_token_hash = None
+        user.reset_token_expires_at = None
+        db.add(user)
+        db.commit()
+        
         return user
 
 

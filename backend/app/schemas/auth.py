@@ -22,6 +22,25 @@ class UserLogin(BaseModel):
     password: str
 
 
+class UserRegister(BaseModel):
+    email: EmailStr
+    username: str
+    password: str
+    full_name: Optional[str] = None
+
+    @validator('password')
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters long')
+        return v
+
+    @validator('username')
+    def validate_username(cls, v):
+        if len(v) < 3:
+            raise ValueError('Username must be at least 3 characters long')
+        return v
+
+
 class Token(BaseModel):
     """Schema for authentication token"""
     access_token: str
@@ -42,7 +61,7 @@ class PasswordChange(BaseModel):
     new_password: str
     
     @validator('new_password')
-    def password_length(cls, v):
+    def validate_new_password(cls, v):
         if len(v) < 8:
             raise ValueError('New password must be at least 8 characters long')
         return v
@@ -63,4 +82,19 @@ class UserResponse(BaseModel):
     created_at: str
     
     class Config:
-        from_attributes = True 
+        from_attributes = True
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+    @validator('new_password')
+    def validate_new_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('New password must be at least 8 characters long')
+        return v 

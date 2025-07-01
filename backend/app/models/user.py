@@ -61,6 +61,10 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     last_login = Column(DateTime(timezone=True))
     
+    # Password reset
+    reset_token_hash = Column(String(255))
+    reset_token_expires_at = Column(DateTime(timezone=True))
+    
     # Check constraints
     __table_args__ = (
         CheckConstraint(role.in_(['user', 'admin', 'moderator']), name='valid_user_role'),
