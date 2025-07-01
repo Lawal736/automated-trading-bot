@@ -55,7 +55,7 @@ export default function ManualStopLossStatusPage() {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/trades/manual-stop-loss-status`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/trades/manual-stop-loss-status`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
