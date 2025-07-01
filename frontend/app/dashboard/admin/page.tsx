@@ -17,9 +17,11 @@ import {
   CogIcon,
   DocumentTextIcon,
   BoltIcon,
+  KeyIcon,
 } from '@heroicons/react/24/outline';
 import { getAdminOverview, AdminOverview } from '../../../lib/admin';
 import ProtectedRoute from '../../components/ProtectedRoute';
+import PasswordChangeModal from '../../../components/PasswordChangeModal';
 
 const StatCard = ({ 
   title, 
@@ -77,6 +79,7 @@ export default function AdminDashboard() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -151,11 +154,22 @@ export default function AdminDashboard() {
         <div className="max-w-7xl mx-auto">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold flex items-center">
-              <CogIcon className="h-8 w-8 mr-3 text-indigo-400" />
-              Admin Dashboard
-            </h1>
-            <p className="text-gray-400 mt-2">System overview and analytics</p>
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-3xl font-bold flex items-center">
+                  <CogIcon className="h-8 w-8 mr-3 text-indigo-400" />
+                  Admin Dashboard
+                </h1>
+                <p className="text-gray-400 mt-2">System overview and analytics</p>
+              </div>
+              <button
+                onClick={() => setShowPasswordModal(true)}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <KeyIcon className="h-5 w-5 mr-2" />
+                Change Password
+              </button>
+            </div>
           </div>
 
           {/* Overview Stats */}
@@ -300,6 +314,15 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
+      {/* Password Change Modal */}
+      <PasswordChangeModal
+        isOpen={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        onSuccess={() => {
+          // Could add additional success handling here if needed
+        }}
+      />
     </ProtectedRoute>
   );
 } 

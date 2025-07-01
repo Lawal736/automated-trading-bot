@@ -92,4 +92,25 @@ def get_current_user_info(
 @router.post("/logout")
 def logout() -> Any:
     """Logout user (client should discard token)"""
-    return {"message": "Successfully logged out"} 
+    return {"message": "Successfully logged out"}
+
+
+@router.post("/change-password")
+def change_password(
+    password_data: auth_schema.PasswordChange,
+    db: Session = Depends(deps.get_db),
+    current_user: user_model.User = Depends(deps.get_current_active_user)
+) -> Any:
+    """Change user password"""
+    
+    # Verify current password
+    if not user_service.verify_password(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Update password
+    user_service.update_password(db, user=current_user, new_password=password_data.new_password)
+    
+    return {"message": "Password changed successfully"} 

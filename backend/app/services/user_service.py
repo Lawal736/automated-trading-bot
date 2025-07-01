@@ -60,6 +60,19 @@ class UserService(ServiceBase[User, UserCreate, UserUpdate]):
 
     def is_active(self, user: User) -> bool:
         return user.is_active
+    
+    def verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verify a plain password against its hash"""
+        return verify_password(plain_password, hashed_password)
+    
+    def update_password(self, db: Session, *, user: User, new_password: str) -> User:
+        """Update user password"""
+        hashed_password = get_password_hash(new_password)
+        user.hashed_password = hashed_password
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
 
 
 user_service = UserService(User) 

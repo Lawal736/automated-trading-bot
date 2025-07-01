@@ -36,6 +36,18 @@ class TokenData(BaseModel):
     user_id: Optional[int] = None
 
 
+class PasswordChange(BaseModel):
+    """Schema for password change"""
+    current_password: str
+    new_password: str
+    
+    @validator('new_password')
+    def password_length(cls, v):
+        if len(v) < 8:
+            raise ValueError('New password must be at least 8 characters long')
+        return v
+
+
 class UserResponse(BaseModel):
     """Schema for user response"""
     id: int
