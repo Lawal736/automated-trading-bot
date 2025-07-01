@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, exchanges, users, bots, activities, portfolio, reports, balance, backtest, admin, trades, cassava_data, stop_loss, automated_cassava
+from app.api.v1.endpoints import auth, exchanges, users, bots, activities, portfolio, reports, balance, backtest, admin, trades, cassava_data, stop_loss, automated_cassava, grid_trading
 
 api_router = APIRouter()
 
@@ -23,4 +23,5 @@ api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(trades.router, prefix="/trades", tags=["trades"])
 api_router.include_router(cassava_data.router, prefix="/cassava-data", tags=["cassava-data"])
 api_router.include_router(stop_loss.router, prefix="/stop-loss", tags=["stop-loss"])
-api_router.include_router(automated_cassava.router, prefix="/automated-cassava", tags=["automated-cassava"]) 
+api_router.include_router(automated_cassava.router, prefix="/automated-cassava", tags=["automated-cassava"])
+api_router.include_router(grid_trading.router, prefix="/grid-trading", tags=["grid-trading"])

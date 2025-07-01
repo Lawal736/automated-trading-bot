@@ -14,6 +14,7 @@ celery_app = Celery(
         "app.tasks.position_tasks",
         "app.tasks.advanced_stop_loss_tasks",
         "app.tasks.automated_cassava_tasks",
+        "app.tasks.grid_trading_tasks",
         "app.tasks.example_tasks"
     ],
     beat_scheduler='redbeat.RedBeatScheduler'
@@ -62,6 +63,12 @@ celery_app.conf.update(
         "tasks.cassava_performance_optimizer": {"queue": "optimization"},
         "tasks.cassava_emergency_backfill": {"queue": "emergency"},
         "tasks.cassava_system_report": {"queue": "reporting"},
+        "tasks.process_active_grids": {"queue": "grid_trading"},
+        "tasks.initialize_new_grids": {"queue": "grid_trading"},
+        "tasks.grid_rebalancing": {"queue": "grid_rebalancing"},
+        "tasks.grid_performance_monitor": {"queue": "monitoring"},
+        "tasks.emergency_grid_stop": {"queue": "emergency"},
+        "tasks.cleanup_completed_grids": {"queue": "cleanup"},
     },
     beat_schedule={
         # Position price updates every 2 minutes
@@ -153,6 +160,32 @@ celery_app.conf.update(
         'cassava-system-report': {
             'task': 'tasks.cassava_system_report',
             'schedule': crontab(hour=6, minute=0),
+        },
+        # Grid Trading Tasks
+        # Process active grids every 1 minute
+        'process-active-grids': {
+            'task': 'tasks.process_active_grids',
+            'schedule': crontab(minute='*/1'),
+        },
+        # Initialize new grids every 5 minutes
+        'initialize-new-grids': {
+            'task': 'tasks.initialize_new_grids',
+            'schedule': crontab(minute='*/5'),
+        },
+        # Grid rebalancing every 15 minutes
+        'grid-rebalancing': {
+            'task': 'tasks.grid_rebalancing',
+            'schedule': crontab(minute='*/15'),
+        },
+        # Grid performance monitoring every hour
+        'grid-performance-monitor': {
+            'task': 'tasks.grid_performance_monitor',
+            'schedule': crontab(minute=0),
+        },
+        # Grid cleanup daily at 04:00 UTC
+        'cleanup-completed-grids': {
+            'task': 'tasks.cleanup_completed_grids',
+            'schedule': crontab(hour=4, minute=0),
         },
     }
 ) 
