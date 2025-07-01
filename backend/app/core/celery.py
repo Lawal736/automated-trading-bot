@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.tasks.advanced_stop_loss_tasks",
         "app.tasks.automated_cassava_tasks",
         "app.tasks.grid_trading_tasks",
+        "app.tasks.trade_analytics_tasks",
         "app.tasks.example_tasks"
     ],
     beat_scheduler='redbeat.RedBeatScheduler'
@@ -186,6 +187,33 @@ celery_app.conf.update(
         'cleanup-completed-grids': {
             'task': 'tasks.cleanup_completed_grids',
             'schedule': crontab(hour=4, minute=0),
+        },
+        
+        # Trade Analytics Tasks
+        # Real-time metrics update every 2 minutes
+        'update-real-time-metrics': {
+            'task': 'tasks.update_real_time_metrics',
+            'schedule': crontab(minute='*/2'),
+        },
+        # Daily reports generation at 01:00 UTC
+        'generate-daily-reports': {
+            'task': 'tasks.generate_daily_reports',
+            'schedule': crontab(hour=1, minute=0),
+        },
+        # Activity monitoring every 15 minutes
+        'activity-monitor': {
+            'task': 'tasks.activity_monitor',
+            'schedule': crontab(minute='*/15'),
+        },
+        # System health check every hour at minute 30
+        'trade-analytics-health-check': {
+            'task': 'tasks.system_health_check',
+            'schedule': crontab(minute=30),
+        },
+        # Cleanup old metrics daily at 03:00 UTC
+        'cleanup-old-metrics': {
+            'task': 'tasks.cleanup_old_metrics',
+            'schedule': crontab(hour=3, minute=0),
         },
     }
 ) 

@@ -6,4 +6,5 @@ from .advanced_stop_loss_tasks import *
 from .automated_cassava_tasks import *
 from .manual_stop_loss_tasks import *
 from .grid_trading_tasks import *
+from .trade_analytics_tasks import *
 from .example_tasks import * 
