@@ -29,7 +29,7 @@ interface Strategy {
 
 const strategies: Strategy[] = [
   { id: 'cassava_trend_following', name: 'Cassava Trend Following Strategy', description: 'Follows market trends using EMAs, DMI, and advanced stop loss logic', risk: 'medium', minBalance: 1000 },
-  { id: 'grid_trading', name: 'Grid Trading', description: 'Places buy and sell orders at regular price intervals', risk: 'low', minBalance: 500 },
+  { id: 'grid_trading', name: 'Grid Trading', description: 'Places buy and sell orders at regular price intervals with 6 advanced algorithms', risk: 'low', minBalance: 500 },
   { id: 'scalping', name: 'Scalping', description: 'Makes many small trades to capture small price movements', risk: 'high', minBalance: 2000 },
   { id: 'mean_reversion', name: 'Mean Reversion', description: 'Trades based on the assumption that prices will revert to their average', risk: 'medium', minBalance: 1500 },
   { id: 'arbitrage', name: 'Arbitrage', description: 'Exploits price differences between exchanges', risk: 'low', minBalance: 5000 }
@@ -66,6 +66,7 @@ export default function CreateBotPage() {
   
   // Strategy-specific parameters
   const [strategyParams, setStrategyParams] = useState({
+    // Cassava parameters
     ema_fast: 10,
     ema_slow_buy: 20,
     ema_slow_sell: 15,
@@ -74,6 +75,23 @@ export default function CreateBotPage() {
     di_plus_sell_threshold: 19,
     timeframe: '4h',
     symbol: 'BTCUSDT',
+    
+    // Grid Trading parameters
+    grid_type: 'arithmetic',
+    grid_direction: 'neutral',
+    grid_levels: 10,
+    grid_spacing_percent: 1.0,
+    investment_per_grid: 100,
+    max_total_investment: 1000,
+    volatility_lookback: 20,
+    volatility_multiplier: 2.0,
+    rebalance_threshold: 0.1,
+    fibonacci_base_spacing: 0.5,
+    bollinger_period: 20,
+    bollinger_std_dev: 2.0,
+    stop_loss_percent: 15,
+    take_profit_percent: 25,
+    max_open_orders: 20,
   });
 
   // Backtest state
@@ -138,7 +156,7 @@ export default function CreateBotPage() {
       await createBot({
         name: botName,
         strategy_name: selectedStrategy,
-        strategy_params: selectedStrategy === 'cassava_trend_following' ? strategyParams : {},
+        strategy_params: (selectedStrategy === 'cassava_trend_following' || selectedStrategy === 'grid_trading') ? strategyParams : {},
         exchange_connection_id: selectedExchange,
         trade_type: tradeType,
         direction,
@@ -231,120 +249,378 @@ export default function CreateBotPage() {
   const selectedStrategyData = useMemo(() => strategies.find(s => s.id === selectedStrategy), [selectedStrategy]);
 
   const renderStrategyOptions = () => {
-    if (selectedStrategy !== 'cassava_trend_following') {
-      return null;
-    }
-    
-    return (
-      <Section icon={<PresentationChartLineIcon className="h-6 w-6 text-teal-400" />} title="Strategy Parameters">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-          <div>
-            <label className="form-label">Timeframe</label>
-            <select value={strategyParams.timeframe} onChange={e => setStrategyParams(p => ({ ...p, timeframe: e.target.value }))} className="w-full form-input">
-              <option>4h</option>
-              <option>6h</option>
-              <option>12h</option>
-              <option>1d</option>
-            </select>
+    if (selectedStrategy === 'cassava_trend_following') {
+      return (
+        <Section icon={<PresentationChartLineIcon className="h-6 w-6 text-teal-400" />} title="Strategy Parameters">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+            <div>
+              <label className="form-label">Timeframe</label>
+              <select value={strategyParams.timeframe} onChange={e => setStrategyParams(p => ({ ...p, timeframe: e.target.value }))} className="w-full form-input">
+                <option>4h</option>
+                <option>6h</option>
+                <option>12h</option>
+                <option>1d</option>
+              </select>
+            </div>
+            <div>
+              <label className="form-label">Fast EMA</label>
+              <input type="number" value={strategyParams.ema_fast} onChange={e => setStrategyParams(p => ({ ...p, ema_fast: parseInt(e.target.value) }))} className="w-full form-input" />
+            </div>
+            <div>
+              <label className="form-label">Slow EMA (Buy)</label>
+              <input type="number" value={strategyParams.ema_slow_buy} onChange={e => setStrategyParams(p => ({ ...p, ema_slow_buy: parseInt(e.target.value) }))} className="w-full form-input" />
+            </div>
+            <div>
+              <label className="form-label">Slow EMA (Sell)</label>
+              <input type="number" value={strategyParams.ema_slow_sell} onChange={e => setStrategyParams(p => ({ ...p, ema_slow_sell: parseInt(e.target.value) }))} className="w-full form-input" />
+            </div>
+            <div>
+              <label className="form-label">DMI Length</label>
+              <input type="number" value={strategyParams.dmi_length} onChange={e => setStrategyParams(p => ({ ...p, dmi_length: parseInt(e.target.value) }))} className="w-full form-input" />
+            </div>
+            <div>
+              <label className="form-label">DI+ Buy Threshold</label>
+              <input type="number" value={strategyParams.di_plus_buy_threshold} onChange={e => setStrategyParams(p => ({ ...p, di_plus_buy_threshold: parseInt(e.target.value) }))} className="w-full form-input" />
+            </div>
+            <div>
+              <label className="form-label">DI+ Sell Threshold</label>
+              <input type="number" value={strategyParams.di_plus_sell_threshold} onChange={e => setStrategyParams(p => ({ ...p, di_plus_sell_threshold: parseInt(e.target.value) }))} className="w-full form-input" />
+            </div>
+            <div>
+              <label htmlFor="symbol" className="form-label">Cryptocurrency</label>
+              <select id="symbol" name="symbol" value={strategyParams.symbol} onChange={e => setStrategyParams(p => ({ ...p, symbol: e.target.value }))} className="w-full form-input">
+                <option value="BTCUSDT">BTCUSDT</option>
+                <option value="ETHUSDT">ETHUSDT</option>
+                <option value="BNBUSDT">BNBUSDT</option>
+                <option value="SOLUSDT">SOLUSDT</option>
+                <option value="SUIUSDT">SUIUSDT</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label className="form-label">Fast EMA</label>
-            <input type="number" value={strategyParams.ema_fast} onChange={e => setStrategyParams(p => ({ ...p, ema_fast: parseInt(e.target.value) }))} className="w-full form-input" />
+          
+          {/* Backtest Button */}
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={handleBacktest}
+              disabled={backtestLoading || !selectedExchange || selectedPairs.length === 0}
+              className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            >
+              {backtestLoading ? (
+                <>
+                  <ArrowPathIcon className="h-5 w-5 mr-2 animate-spin" />
+                  Running Backtest...
+                </>
+              ) : (
+                <>
+                  <BeakerIcon className="h-5 w-5 mr-2" />
+                  Run Backtest
+                </>
+              )}
+            </button>
           </div>
-          <div>
-            <label className="form-label">Slow EMA (Buy)</label>
-            <input type="number" value={strategyParams.ema_slow_buy} onChange={e => setStrategyParams(p => ({ ...p, ema_slow_buy: parseInt(e.target.value) }))} className="w-full form-input" />
-          </div>
-          <div>
-            <label className="form-label">Slow EMA (Sell)</label>
-            <input type="number" value={strategyParams.ema_slow_sell} onChange={e => setStrategyParams(p => ({ ...p, ema_slow_sell: parseInt(e.target.value) }))} className="w-full form-input" />
-          </div>
-          <div>
-            <label className="form-label">DMI Length</label>
-            <input type="number" value={strategyParams.dmi_length} onChange={e => setStrategyParams(p => ({ ...p, dmi_length: parseInt(e.target.value) }))} className="w-full form-input" />
-          </div>
-          <div>
-            <label className="form-label">DI+ Buy Threshold</label>
-            <input type="number" value={strategyParams.di_plus_buy_threshold} onChange={e => setStrategyParams(p => ({ ...p, di_plus_buy_threshold: parseInt(e.target.value) }))} className="w-full form-input" />
-          </div>
-          <div>
-            <label className="form-label">DI+ Sell Threshold</label>
-            <input type="number" value={strategyParams.di_plus_sell_threshold} onChange={e => setStrategyParams(p => ({ ...p, di_plus_sell_threshold: parseInt(e.target.value) }))} className="w-full form-input" />
-          </div>
-          <div>
-            <label htmlFor="symbol" className="form-label">Cryptocurrency</label>
-            <select id="symbol" name="symbol" value={strategyParams.symbol} onChange={e => setStrategyParams(p => ({ ...p, symbol: e.target.value }))} className="w-full form-input">
-              <option value="BTCUSDT">BTCUSDT</option>
-              <option value="ETHUSDT">ETHUSDT</option>
-              <option value="BNBUSDT">BNBUSDT</option>
-              <option value="SOLUSDT">SOLUSDT</option>
-              <option value="SUIUSDT">SUIUSDT</option>
-            </select>
-          </div>
-        </div>
-        
-        {/* Backtest Button */}
-        <div className="mt-6">
-          <button
-            type="button"
-            onClick={handleBacktest}
-            disabled={backtestLoading || !selectedExchange || selectedPairs.length === 0}
-            className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-          >
-            {backtestLoading ? (
-              <>
-                <ArrowPathIcon className="h-5 w-5 mr-2 animate-spin" />
-                Running Backtest...
-              </>
-            ) : (
-              <>
-                <BeakerIcon className="h-5 w-5 mr-2" />
-                Run Backtest
-              </>
-            )}
-          </button>
-        </div>
 
-        {/* Backtest Results */}
-        {backtestResult && (
-          <div className="mt-6 bg-gray-700 p-4 rounded-lg">
-            <h4 className="text-lg font-semibold mb-4">Backtest Results</h4>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-sm text-gray-400">Total Return</p>
-                <p className={`text-xl font-bold ${backtestResult.total_return >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                  {backtestResult.total_return.toFixed(2)}%
-                </p>
+          {/* Backtest Results */}
+          {backtestResult && (
+            <div className="mt-6 bg-gray-700 p-4 rounded-lg">
+              <h4 className="text-lg font-semibold mb-4">Backtest Results</h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-sm text-gray-400">Total Return</p>
+                  <p className={`text-xl font-bold ${backtestResult.total_return >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                    {backtestResult.total_return.toFixed(2)}%
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Total Trades</p>
+                  <p className="text-xl font-bold">{backtestResult.total_trades}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Win Rate</p>
+                  <p className="text-xl font-bold">{backtestResult.win_rate.toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Max Drawdown</p>
+                  <p className="text-xl font-bold text-red-500">{(backtestResult.max_drawdown * 100).toFixed(2)}%</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm text-gray-400">Total Trades</p>
-                <p className="text-xl font-bold">{backtestResult.total_trades}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">Win Rate</p>
-                <p className="text-xl font-bold">{backtestResult.win_rate.toFixed(1)}%</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-400">Max Drawdown</p>
-                <p className="text-xl font-bold text-red-500">{(backtestResult.max_drawdown * 100).toFixed(2)}%</p>
+              {backtestResult.trades && backtestResult.trades.length > 0 && (
+                <div className="mt-4 text-right">
+                  <button
+                    type="button"
+                    onClick={() => router.push('/dashboard/backtest-details')}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
+                  >
+                    View Details
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
+      );
+    }
+
+    if (selectedStrategy === 'grid_trading') {
+      return (
+        <Section icon={<PresentationChartLineIcon className="h-6 w-6 text-teal-400" />} title="Grid Trading Configuration">
+          {/* Grid Type Selection */}
+          <div className="mb-8">
+            <h4 className="text-lg font-semibold mb-4 text-blue-400">Grid Algorithm</h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                { id: 'arithmetic', name: 'Arithmetic Grid', desc: 'Equal price intervals', icon: '📏' },
+                { id: 'geometric', name: 'Geometric Grid', desc: 'Percentage-based spacing', icon: '📈' },
+                { id: 'dynamic', name: 'Dynamic Grid', desc: 'Volatility-adaptive', icon: '⚡' },
+                { id: 'fibonacci', name: 'Fibonacci Grid', desc: 'Fibonacci sequence levels', icon: '🌀' },
+                { id: 'bollinger', name: 'Bollinger Band Grid', desc: 'BB-based levels', icon: '📊' },
+                { id: 'support_resistance', name: 'Support/Resistance Grid', desc: 'S/R aligned', icon: '🎯' }
+              ].map((gridType) => (
+                <button
+                  key={gridType.id}
+                  type="button"
+                  onClick={() => setStrategyParams(p => ({ ...p, grid_type: gridType.id }))}
+                  className={`p-4 border rounded-lg text-left transition-all duration-200 ${
+                    strategyParams.grid_type === gridType.id
+                      ? 'border-blue-500 bg-blue-900/20 text-blue-300'
+                      : 'border-gray-600 hover:border-gray-500 hover:bg-gray-800/50'
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    <span className="text-2xl">{gridType.icon}</span>
+                    <div>
+                      <h5 className="font-semibold text-sm mb-1">{gridType.name}</h5>
+                      <p className="text-xs text-gray-400">{gridType.desc}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Grid Direction */}
+          <div className="mb-8">
+            <h4 className="text-lg font-semibold mb-4 text-green-400">Grid Direction</h4>
+            <div className="grid grid-cols-3 gap-4">
+              {[
+                { id: 'long_only', name: 'Long Only', desc: 'Only buy orders (accumulate)', color: 'green' },
+                { id: 'short_only', name: 'Short Only', desc: 'Only sell orders (profit)', color: 'red' },
+                { id: 'neutral', name: 'Neutral', desc: 'Both buy and sell orders', color: 'blue' }
+              ].map((direction) => (
+                <button
+                  key={direction.id}
+                  type="button"
+                  onClick={() => setStrategyParams(p => ({ ...p, grid_direction: direction.id }))}
+                  className={`p-4 border rounded-lg text-center transition-all duration-200 ${
+                    strategyParams.grid_direction === direction.id
+                      ? `border-${direction.color}-500 bg-${direction.color}-900/20 text-${direction.color}-300`
+                      : 'border-gray-600 hover:border-gray-500'
+                  }`}
+                >
+                  <h5 className="font-semibold text-sm mb-1">{direction.name}</h5>
+                  <p className="text-xs text-gray-400">{direction.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Basic Grid Parameters */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+            <div>
+              <label className="form-label">Grid Levels</label>
+              <input 
+                type="number" 
+                min="5" 
+                max="50" 
+                value={strategyParams.grid_levels || 10} 
+                onChange={e => setStrategyParams(p => ({ ...p, grid_levels: parseInt(e.target.value) }))} 
+                className="w-full form-input" 
+              />
+              <p className="text-xs text-gray-400 mt-1">Number of price levels (5-50)</p>
+            </div>
+            <div>
+              <label className="form-label">Grid Spacing (%)</label>
+              <input 
+                type="number" 
+                step="0.1" 
+                min="0.1" 
+                max="10" 
+                value={strategyParams.grid_spacing_percent || 1.0} 
+                onChange={e => setStrategyParams(p => ({ ...p, grid_spacing_percent: parseFloat(e.target.value) }))} 
+                className="w-full form-input" 
+              />
+              <p className="text-xs text-gray-400 mt-1">% between levels</p>
+            </div>
+            <div>
+              <label className="form-label">Investment per Grid ($)</label>
+              <input 
+                type="number" 
+                min="10" 
+                value={strategyParams.investment_per_grid || 100} 
+                onChange={e => setStrategyParams(p => ({ ...p, investment_per_grid: parseFloat(e.target.value) }))} 
+                className="w-full form-input" 
+              />
+              <p className="text-xs text-gray-400 mt-1">USDT per grid level</p>
+            </div>
+            <div>
+              <label className="form-label">Max Total Investment ($)</label>
+              <input 
+                type="number" 
+                min="100" 
+                value={strategyParams.max_total_investment || 1000} 
+                onChange={e => setStrategyParams(p => ({ ...p, max_total_investment: parseFloat(e.target.value) }))} 
+                className="w-full form-input" 
+              />
+              <p className="text-xs text-gray-400 mt-1">Maximum total USDT</p>
+            </div>
+          </div>
+
+          {/* Algorithm-Specific Parameters */}
+          {strategyParams.grid_type === 'dynamic' && (
+            <div className="bg-gray-800 p-4 rounded-lg mb-6">
+              <h5 className="text-md font-semibold mb-3 text-yellow-400">⚡ Dynamic Grid Settings</h5>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="form-label">Volatility Lookback (days)</label>
+                  <input 
+                    type="number" 
+                    min="5" 
+                    max="100" 
+                    value={strategyParams.volatility_lookback || 20} 
+                    onChange={e => setStrategyParams(p => ({ ...p, volatility_lookback: parseInt(e.target.value) }))} 
+                    className="w-full form-input" 
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Volatility Multiplier</label>
+                  <input 
+                    type="number" 
+                    step="0.1" 
+                    min="0.5" 
+                    max="5" 
+                    value={strategyParams.volatility_multiplier || 2.0} 
+                    onChange={e => setStrategyParams(p => ({ ...p, volatility_multiplier: parseFloat(e.target.value) }))} 
+                    className="w-full form-input" 
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Rebalance Threshold (%)</label>
+                  <input 
+                    type="number" 
+                    step="0.01" 
+                    min="0.01" 
+                    max="1" 
+                    value={strategyParams.rebalance_threshold || 0.1} 
+                    onChange={e => setStrategyParams(p => ({ ...p, rebalance_threshold: parseFloat(e.target.value) }))} 
+                    className="w-full form-input" 
+                  />
+                </div>
               </div>
             </div>
-            {backtestResult.trades && backtestResult.trades.length > 0 && (
-              <div className="mt-4 text-right">
-                <button
-                  type="button"
-                  onClick={() => router.push('/dashboard/backtest-details')}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm"
-                >
-                  View Details
-                </button>
+          )}
+
+          {strategyParams.grid_type === 'fibonacci' && (
+            <div className="bg-gray-800 p-4 rounded-lg mb-6">
+              <h5 className="text-md font-semibold mb-3 text-purple-400">🌀 Fibonacci Grid Settings</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">Base Spacing (%)</label>
+                  <input 
+                    type="number" 
+                    step="0.1" 
+                    min="0.1" 
+                    max="2" 
+                    value={strategyParams.fibonacci_base_spacing || 0.5} 
+                    onChange={e => setStrategyParams(p => ({ ...p, fibonacci_base_spacing: parseFloat(e.target.value) }))} 
+                    className="w-full form-input" 
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Base percentage for Fibonacci scaling</p>
+                </div>
               </div>
-            )}
+            </div>
+          )}
+
+          {strategyParams.grid_type === 'bollinger' && (
+            <div className="bg-gray-800 p-4 rounded-lg mb-6">
+              <h5 className="text-md font-semibold mb-3 text-indigo-400">📊 Bollinger Band Grid Settings</h5>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">BB Period</label>
+                  <input 
+                    type="number" 
+                    min="10" 
+                    max="50" 
+                    value={strategyParams.bollinger_period || 20} 
+                    onChange={e => setStrategyParams(p => ({ ...p, bollinger_period: parseInt(e.target.value) }))} 
+                    className="w-full form-input" 
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Standard Deviation</label>
+                  <input 
+                    type="number" 
+                    step="0.1" 
+                    min="1" 
+                    max="3" 
+                    value={strategyParams.bollinger_std_dev || 2.0} 
+                    onChange={e => setStrategyParams(p => ({ ...p, bollinger_std_dev: parseFloat(e.target.value) }))} 
+                    className="w-full form-input" 
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Risk Management for Grid Trading */}
+          <div className="bg-red-900/20 border border-red-700 p-4 rounded-lg">
+            <h5 className="text-md font-semibold mb-3 text-red-400">🛡️ Grid Risk Management</h5>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <div>
+                <label className="form-label">Stop Loss (%)</label>
+                <input 
+                  type="number" 
+                  step="0.5" 
+                  min="5" 
+                  max="50" 
+                  value={strategyParams.stop_loss_percent || 15} 
+                  onChange={e => setStrategyParams(p => ({ ...p, stop_loss_percent: parseFloat(e.target.value) }))} 
+                  className="w-full form-input" 
+                />
+                <p className="text-xs text-gray-400 mt-1">Stop entire grid</p>
+              </div>
+              <div>
+                <label className="form-label">Take Profit (%)</label>
+                <input 
+                  type="number" 
+                  step="0.5" 
+                  min="10" 
+                  max="100" 
+                  value={strategyParams.take_profit_percent || 25} 
+                  onChange={e => setStrategyParams(p => ({ ...p, take_profit_percent: parseFloat(e.target.value) }))} 
+                  className="w-full form-input" 
+                />
+                <p className="text-xs text-gray-400 mt-1">Take profit entire grid</p>
+              </div>
+              <div>
+                <label className="form-label">Max Open Orders</label>
+                <input 
+                  type="number" 
+                  min="5" 
+                  max="100" 
+                  value={strategyParams.max_open_orders || 20} 
+                  onChange={e => setStrategyParams(p => ({ ...p, max_open_orders: parseInt(e.target.value) }))} 
+                  className="w-full form-input" 
+                />
+                <p className="text-xs text-gray-400 mt-1">Limit concurrent orders</p>
+              </div>
+            </div>
           </div>
-        )}
-      </Section>
-    )
-  }
+        </Section>
+      );
+    }
+
+    return null;
+  };
 
   const renderStopLossOptions = () => {
     switch (stop_loss_type) {
