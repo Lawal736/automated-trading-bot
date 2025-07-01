@@ -53,20 +53,29 @@ export default function PasswordChangeModal({ isOpen, onClose, onSuccess }: Pass
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submitted', formData);
     
     if (!validateForm()) {
+      console.log('Form validation failed', errors);
       return;
     }
 
     setIsSubmitting(true);
+    console.log('Starting password change request...');
 
     try {
       const token = localStorage.getItem('access_token');
       if (!token) {
+        console.error('No authentication token found');
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/auth/change-password`, {
+      console.log('Token found, making API request...');
+
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || window.location.origin}/api/v1/auth/change-password`;
+      console.log('API URL:', apiUrl);
+
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -78,11 +87,15 @@ export default function PasswordChangeModal({ isOpen, onClose, onSuccess }: Pass
         })
       });
 
+      console.log('Response status:', response.status);
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('API error:', errorData);
         throw new Error(errorData.detail || 'Failed to change password');
       }
 
+      console.log('Password changed successfully');
       toast.success('Password changed successfully!');
       
       // Reset form
@@ -99,6 +112,7 @@ export default function PasswordChangeModal({ isOpen, onClose, onSuccess }: Pass
       
       onClose();
     } catch (error: any) {
+      console.error('Password change error:', error);
       toast.error(error.message || 'Failed to change password');
     } finally {
       setIsSubmitting(false);
