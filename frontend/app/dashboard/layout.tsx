@@ -18,6 +18,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Menu } from '@headlessui/react';
 import { ChevronDownIcon } from '@heroicons/react/20/solid';
 import { useAuth } from '../contexts/AuthContext';
+import PasswordChangeModal from '../../components/PasswordChangeModal';
 
 const navigation = [
   { name: 'Dashboard', href: '/dashboard', icon: HomeIcon },
@@ -36,6 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
   const { isAdmin, user } = useAuth();
 
   // Debug print for admin status
@@ -264,6 +266,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                                 <Menu.Item>
                                     {({ active }) => (
                                         <button
+                                            onClick={() => setShowPasswordModal(true)}
+                                            className={classNames(active ? 'bg-gray-100' : '', 'block w-full text-left px-4 py-2 text-sm text-gray-700')}
+                                        >
+                                            Change Password
+                                        </button>
+                                    )}
+                                </Menu.Item>
+                                <Menu.Item>
+                                    {({ active }) => (
+                                        <button
                                             onClick={handleLogout}
                                             className={classNames(active ? 'bg-gray-100' : '', 'block w-full text-left px-4 py-2 text-sm text-gray-700')}
                                         >
@@ -285,6 +297,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
             </main>
         </div>
+
+        {/* User Password Change Modal */}
+        <PasswordChangeModal
+          isOpen={showPasswordModal}
+          onClose={() => setShowPasswordModal(false)}
+          onSuccess={() => {
+            // Could add additional success handling here if needed
+          }}
+        />
     </div>
   );
 } 
