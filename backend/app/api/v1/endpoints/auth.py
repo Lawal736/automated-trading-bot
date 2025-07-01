@@ -61,6 +61,9 @@ def login_for_access_token(
             subject=user.email, expires_delta=access_token_expires
         ),
         "token_type": "bearer",
+        "user_id": user.id,
+        "email": user.email,
+        "username": user.username,
     }
 
 
