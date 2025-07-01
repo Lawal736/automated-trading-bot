@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
+import { EyeIcon, PencilIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 interface User {
   id: number;
@@ -249,26 +250,31 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-4 py-2">{user.created_at?.slice(0, 10)}</td>
                     <td className="px-4 py-2">{user.last_login ? user.last_login.slice(0, 10) : 'Never'}</td>
-                    <td className="px-4 py-2 space-x-2">
-                      <button 
-                        className="px-2 py-1 bg-blue-600 rounded hover:bg-blue-700"
-                        onClick={() => handleView(user.id)}
-                      >
-                        View
-                      </button>
-                      <button 
-                        className="px-2 py-1 bg-yellow-600 rounded hover:bg-yellow-700"
-                        onClick={() => handleEdit(user.id)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="px-2 py-1 bg-red-600 rounded hover:bg-red-700 disabled:opacity-50"
-                        onClick={() => handleDelete(user.id)}
-                        disabled={deletingId === user.id}
-                      >
-                        {deletingId === user.id ? 'Deleting...' : 'Delete'}
-                      </button>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center space-x-1">
+                        <button 
+                          className="p-1.5 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-md transition-colors duration-150"
+                          onClick={() => handleView(user.id)}
+                          title="View User Details"
+                        >
+                          <EyeIcon className="h-4 w-4" />
+                        </button>
+                        <button 
+                          className="p-1.5 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 rounded-md transition-colors duration-150"
+                          onClick={() => handleEdit(user.id)}
+                          title="Edit User"
+                        >
+                          <PencilIcon className="h-4 w-4" />
+                        </button>
+                        <button
+                          className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-md transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={() => handleDelete(user.id)}
+                          disabled={deletingId === user.id}
+                          title={deletingId === user.id ? 'Deleting...' : 'Delete User'}
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
