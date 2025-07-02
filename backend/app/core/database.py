@@ -13,12 +13,18 @@ logger = get_logger(__name__)
 # Use DATABASE_URL environment variable directly if available, otherwise fall back to settings
 database_url = os.getenv("DATABASE_URL") or settings.DATABASE_URI
 
+# Force creation of a new engine with the correct URL
+logger.info(f"Creating database engine with URL: {database_url}")
+
 # Create a synchronous engine
 engine = create_engine(
     database_url,
     pool_pre_ping=True,
     echo=settings.DB_ECHO,
 )
+
+# Log the actual engine URL for verification
+logger.info(f"Engine created with URL components - User: {engine.url.username}, Host: {engine.url.host}, DB: {engine.url.database}")
 
 # Create a session maker for synchronous sessions
 SessionLocal = sessionmaker(
