@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     
     @property 
     def DATABASE_URI(self) -> str:
+        # Use DATABASE_URL environment variable if available, otherwise construct from components
+        db_url = os.getenv("DATABASE_URL")
+        if db_url:
+            return db_url
         return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
     
     @property
