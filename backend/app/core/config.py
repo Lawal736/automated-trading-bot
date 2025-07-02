@@ -26,23 +26,43 @@ class Settings(BaseSettings):
     TRUSTED_HOSTS: List[str] = ["*"]  # Allow all hosts in development
     
     # Database settings
-    POSTGRES_SERVER: str = "trading_bot_postgres_prod"
-    POSTGRES_USER: str = "trading_user"
-    POSTGRES_PASSWORD: str = "test1234"
-    POSTGRES_DB: str = "trading_bot"
-    POSTGRES_PORT: str = "5432"
-    DATABASE_URL: str = "postgresql://trading_user:test1234@postgres:5432/trading_bot"
-    DATABASE_URI: str = "postgresql://trading_user:test1234@postgres:5432/trading_bot"
-    ASYNC_DATABASE_URI: str = "postgresql+asyncpg://trading_user:test1234@postgres:5432/trading_bot"
+    POSTGRES_SERVER: str = os.getenv("POSTGRES_SERVER", "postgres")
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "trading_user")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "your_strong_password")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "trading_bot")
+    POSTGRES_PORT: str = os.getenv("POSTGRES_PORT", "5432")
+    
+    # Construct database URLs using environment variables
+    @property
+    def DATABASE_URL(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    
+    @property 
+    def DATABASE_URI(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    
+    @property
+    def ASYNC_DATABASE_URI(self) -> str:
+        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 30
     
     # Redis settings
-    REDIS_URL: str = "redis://redis:6379/0"
-    REDIS_PASSWORD: Optional[str] = None
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    REDIS_PASSWORD: Optional[str] = os.getenv("REDIS_PASSWORD")
     
     # RabbitMQ settings
-    RABBITMQ_URL: str = "amqp://guest:guest@rabbitmq:5672/"
+    RABBITMQ_URL: str = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
+    
+    # Celery settings using Redis URL
+    @property
+    def CELERY_BROKER_URL(self) -> str:
+        return self.REDIS_URL
+        
+    @property
+    def CELERY_RESULT_BACKEND(self) -> str:
+        return self.REDIS_URL
     
     # Exchange API settings
     BINANCE_API_KEY: Optional[str] = None
@@ -104,10 +124,6 @@ class Settings(BaseSettings):
     WEBSOCKET_PING_TIMEOUT: int = 20
     
     DB_ECHO: bool = False
-    
-    # Celery
-    CELERY_BROKER_URL: str = "redis://redis:6379/0"
-    CELERY_RESULT_BACKEND: str = "redis://redis:6379/0"
     
     # New setting
     POSITION_SYNC_INTERVAL_MINUTES: int = int(os.getenv("POSITION_SYNC_INTERVAL_MINUTES", 5))

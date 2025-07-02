@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: trading_bot_postgres
+    container_name: postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-trading_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-your_strong_password}
@@ -22,7 +22,7 @@ services:
 
   redis:
     image: redis:6.2-alpine
-    container_name: trading_bot_redis
+    container_name: redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 1s
@@ -39,7 +39,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: trading_bot_rabbitmq
+    container_name: rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"

@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:15-alpine
-    container_name: trading_bot_postgres_prod
+    container_name: postgres
     environment:
       POSTGRES_USER: trading_user
       POSTGRES_PASSWORD: test1234
@@ -22,7 +22,7 @@ services:
 
   redis:
     image: redis:6.2-alpine
-    container_name: trading_bot_redis_prod
+    container_name: redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 1s
@@ -39,7 +39,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    container_name: trading_bot_rabbitmq_prod
+    container_name: rabbitmq
     ports:
       - "127.0.0.1:5672:5672"
       - "127.0.0.1:15672:15672"
@@ -57,7 +57,7 @@ services:
 
   backend:
     image: registry.digitalocean.com/${DIGITALOCEAN_REGISTRY}/automatedtradingbot-backend:latest
-    container_name: trading_bot_backend_prod
+    container_name: trading_bot_backend
     command: /bin/bash -c "/app/scripts/wait-for-it.sh redis 6379 && /app/run-migrations.sh && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     env_file:
       - .env
@@ -86,7 +86,7 @@ services:
 
   celery_worker:
     image: registry.digitalocean.com/${DIGITALOCEAN_REGISTRY}/automatedtradingbot-backend:latest
-    container_name: trading_bot_celery_worker_prod
+    container_name: trading_bot_celery_worker
     command: /bin/bash -c "/app/scripts/wait-for-it.sh redis 6379 && celery -A app.core.celery.celery_app worker -l info --concurrency=4"
     env_file:
       - .env
@@ -111,7 +111,7 @@ services:
 
   celery_beat:
     image: registry.digitalocean.com/${DIGITALOCEAN_REGISTRY}/automatedtradingbot-backend:latest
-    container_name: trading_bot_celery_beat_prod
+    container_name: trading_bot_celery_beat
     command: /bin/bash -c "/app/scripts/wait-for-it.sh redis 6379 && celery -A app.core.celery.celery_app beat -l info --scheduler redbeat.RedBeatScheduler"
     env_file:
       - .env
@@ -136,7 +136,7 @@ services:
 
   frontend:
     image: registry.digitalocean.com/${DIGITALOCEAN_REGISTRY}/automatedtradingbot-frontend:latest
-    container_name: trading_bot_frontend_prod
+    container_name: trading_bot_frontend
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - HOSTNAME=0.0.0.0
@@ -157,13 +157,14 @@ services:
 
   nginx:
     image: nginx:alpine
-    container_name: trading_bot_nginx_prod
+    container_name: trading_bot_nginx
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./nginx/ssl:/etc/nginx/ssl
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /var/www/certbot:/var/www/certbot
       - ./logs/nginx:/var/log/nginx
     depends_on:
       - frontend
