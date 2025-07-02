@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordBearer
 
 from app.core.config import settings
-from app.core.database import SessionLocal
+from app.core.database import get_session_maker
 from app.models import user as user_model
 from app.services import user_service
 from app.trading.trading_service import TradingService
@@ -18,7 +18,8 @@ oauth2_scheme = OAuth2PasswordBearer(
 
 def get_db() -> Generator:
     try:
-        db = SessionLocal()
+        session_maker = get_session_maker()
+        db = session_maker()
         yield db
     finally:
         db.close()
