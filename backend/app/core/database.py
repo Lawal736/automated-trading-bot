@@ -2,6 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Generator
 import logging
+import os
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -9,9 +10,12 @@ from app.models.base_class import Base
 
 logger = get_logger(__name__)
 
+# Use DATABASE_URL environment variable directly if available, otherwise fall back to settings
+database_url = os.getenv("DATABASE_URL") or settings.DATABASE_URI
+
 # Create a synchronous engine
 engine = create_engine(
-    settings.DATABASE_URI,
+    database_url,
     pool_pre_ping=True,
     echo=settings.DB_ECHO,
 )
