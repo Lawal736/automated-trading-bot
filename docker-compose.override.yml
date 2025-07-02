@@ -1,0 +1,21 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Override the registry image to build locally
+    image: automated-trading-bot-backend:local
+    
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Override the registry image to build locally  
+    image: automated-trading-bot-backend:local
+    
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    # Override the registry image to build locally
+    image: automated-trading-bot-backend:local 
