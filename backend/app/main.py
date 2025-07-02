@@ -44,6 +44,7 @@ def create_application() -> FastAPI:
         docs_url="/docs" if settings.ENVIRONMENT != "production" else None,
         redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
         lifespan=lifespan,
+        redirect_slashes=False,  # Disable automatic trailing slash redirects
     )
 
     @app.exception_handler(RequestValidationError)
